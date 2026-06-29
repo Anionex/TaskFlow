@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TaskFlow - 任务管理</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <div class="container">
+
+        <!-- ==================== 模式切换按钮 ==================== -->
+        <div class="theme-switcher">
+            <button class="theme-btn active" data-theme="normal" title="普通模式">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                <span>普通</span>
+            </button>
+            <button class="theme-btn" data-theme="eyecare" title="护眼模式">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <span>护眼</span>
+            </button>
+            <button class="theme-btn" data-theme="night" title="夜间模式">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                <span>夜间</span>
+            </button>
+        </div>
+
+        <!-- ==================== 登录页 ==================== -->
+        <div id="view-login" class="view">
+            <div class="auth-wrapper">
+                <div class="logo-area">
+                    <div class="logo-icon">
+                        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <rect x="4" y="8" width="40" height="32" rx="6" stroke="url(#g1)" stroke-width="2.5" fill="none"/>
+                            <path d="M14 24L21 31L34 17" stroke="url(#g1)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                            <defs><linearGradient id="g1" x1="0" y1="0" x2="48" y2="48"><stop offset="0%" stop-color="#667eea"/><stop offset="100%" stop-color="#764ba2"/></linearGradient></defs>
+                        </svg>
+                    </div>
+                    <h1 class="logo-text">TaskFlow</h1>
+                    <p class="logo-tagline">轻量高效的个人任务管理</p>
+                </div>
+                <div class="card auth-card">
+                    <h2 class="card-title">欢迎回来</h2>
+                    <p class="card-subtitle">登录你的账号继续工作</p>
+                    <form id="form-login" autocomplete="off">
+                        <div class="form-group">
+                            <label for="login-phone">手机号</label>
+                            <input type="tel" id="login-phone" placeholder="请输入11位手机号" maxlength="11" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="login-password">密码</label>
+                            <input type="password" id="login-password" placeholder="请输入密码" minlength="6" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-block">登 录</button>
+                    </form>
+                    <p class="switch-link">还没有账号？<a href="#" id="go-register">立即注册</a></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== 注册页 ==================== -->
+        <div id="view-register" class="view hidden">
+            <div class="auth-wrapper">
+                <div class="logo-area">
+                    <div class="logo-icon">
+                        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <rect x="4" y="8" width="40" height="32" rx="6" stroke="url(#g2)" stroke-width="2.5" fill="none"/>
+                            <path d="M14 24L21 31L34 17" stroke="url(#g2)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                            <defs><linearGradient id="g2" x1="0" y1="0" x2="48" y2="48"><stop offset="0%" stop-color="#667eea"/><stop offset="100%" stop-color="#764ba2"/></linearGradient></defs>
+                        </svg>
+                    </div>
+                    <h1 class="logo-text">TaskFlow</h1>
+                    <p class="logo-tagline">轻量高效的个人任务管理</p>
+                </div>
+                <div class="card auth-card">
+                    <h2 class="card-title">创建账号</h2>
+                    <p class="card-subtitle">注册一个新账号开始使用</p>
+                    <form id="form-register" autocomplete="off">
+                        <div class="form-group">
+                            <label for="reg-phone">手机号</label>
+                            <input type="tel" id="reg-phone" placeholder="请输入11位手机号" maxlength="11" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="reg-password">密码</label>
+                            <input type="password" id="reg-password" placeholder="至少6位" minlength="6" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="reg-password2">确认密码</label>
+                            <input type="password" id="reg-password2" placeholder="再次输入密码" minlength="6" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-block">注 册</button>
+                    </form>
+                    <p class="switch-link">已有账号？<a href="#" id="go-login">去登录</a></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== 励志名言页 ==================== -->
+        <div id="view-quote" class="view hidden">
+            <div class="quote-wrapper">
+                <div class="quote-card">
+                    <div class="quote-icon">&#127775;</div>
+                    <p class="quote-text" id="quote-text"></p>
+                    <div class="quote-dots">
+                        <span class="dot"></span>
+                        <span class="dot"></span>
+                        <span class="dot"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ==================== 任务主页 ==================== -->
+        <div id="view-main" class="view hidden">
+            <!-- 顶部栏 -->
+            <header class="topbar">
+                <div class="topbar-left">
+                    <div class="topbar-logo">
+                        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" width="26" height="26">
+                            <rect x="4" y="8" width="40" height="32" rx="6" stroke="url(#g3)" stroke-width="2.5" fill="none"/>
+                            <path d="M14 24L21 31L34 17" stroke="url(#g3)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                            <defs><linearGradient id="g3" x1="0" y1="0" x2="48" y2="48"><stop offset="0%" stop-color="#667eea"/><stop offset="100%" stop-color="#764ba2"/></linearGradient></defs>
+                        </svg>
+                        <span class="topbar-brand">TaskFlow</span>
+                    </div>
+                    <span class="topbar-phone" id="display-phone"></span>
+                </div>
+                <div class="topbar-right">
+                    <button class="btn btn-sm btn-outline" id="btn-user-center" title="用户中心">
+                        <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd"/></svg>
+                        用户中心
+                    </button>
+                    <button class="btn btn-sm btn-outline" id="btn-export" title="导出数据">
+                        <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                        导出
+                    </button>
+                    <label class="btn btn-sm btn-outline" id="btn-import-label" title="导入数据">
+                        <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" transform="rotate(180 10 10)"/></svg>
+                        导入
+                        <input type="file" id="import-file" accept=".zip" style="display:none">
+                    </label>
+                    <button class="btn btn-sm btn-outline" id="btn-logout">退出</button>
+                </div>
+            </header>
+
+            <!-- 统计面板 -->
+            <div class="stats-row">
+                <div class="stat-card stat-total">
+                    <span class="stat-num" id="stat-total">0</span>
+                    <span class="stat-label">全部任务</span>
+                </div>
+                <div class="stat-card stat-pending">
+                    <span class="stat-num" id="stat-pending">0</span>
+                    <span class="stat-label">待办中</span>
+                </div>
+                <div class="stat-card stat-done">
+                    <span class="stat-num" id="stat-done">0</span>
+                    <span class="stat-label">已完成</span>
+                </div>
+            </div>
+
+            <!-- 每日打卡 -->
+            <div class="card checkin-card">
+                <div class="checkin-row">
+                    <div class="checkin-info">
+                        <span class="checkin-label">每日打卡</span>
+                        <span class="checkin-streak" id="checkin-current">当前连续: 0天</span>
+                        <span class="checkin-max" id="checkin-max">最长连续: 0天</span>
+                    </div>
+                    <button class="btn btn-primary btn-sm" id="btn-checkin">
+                        <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                        签到
+                    </button>
+                </div>
+                <div class="checkin-quote hidden" id="checkin-quote"></div>
+            </div>
+
+            <!-- 添加任务卡片 -->
+            <div class="card add-task-card">
+                <form id="form-add-task" autocomplete="off">
+                    <div class="add-task-row">
+                        <input type="text" id="task-title" placeholder="添加新任务..." maxlength="100" required>
+                        <button type="submit" class="btn btn-primary">
+                            <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/></svg>
+                            添加
+                        </button>
+                        <button type="button" class="btn btn-outline" id="btn-generator">
+                            <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+                            自动生成
+                        </button>
+                    </div>
+                    <!-- 高级选项展开 -->
+                    <button type="button" class="btn btn-text" id="btn-toggle-advanced">
+                        <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd"/></svg>
+                        高级选项
+                        <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12" class="chevron-icon" id="chevron-adv"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                    </button>
+                    <div class="advanced-panel hidden" id="advanced-panel">
+                        <div class="adv-row">
+                            <div class="adv-field">
+                                <label>分类</label>
+                                <select id="task-category">
+                                    <option value="工作">工作</option>
+                                    <option value="学习">学习</option>
+                                    <option value="生活">生活</option>
+                                    <option value="家庭">家庭</option>
+                                    <option value="其他" selected>其他</option>
+                                </select>
+                            </div>
+                            <div class="adv-field">
+                                <label>重要程度</label>
+                                <div class="star-rating" id="star-rating-create">
+                                    <span class="star" data-val="1">&#9733;</span>
+                                    <span class="star" data-val="2">&#9733;</span>
+                                    <span class="star" data-val="3">&#9733;</span>
+                                    <span class="star" data-val="4">&#9733;</span>
+                                    <span class="star" data-val="5">&#9733;</span>
+                                </div>
+                                <input type="hidden" id="task-star-rating" value="0">
+                            </div>
+                        </div>
+                        <div class="adv-row">
+                            <div class="adv-field">
+                                <label>开始日期</label>
+                                <input type="datetime-local" id="task-start-date" lang="en">
+                            </div>
+                            <div class="adv-field">
+                                <label>截止日期</label>
+                                <input type="datetime-local" id="task-deadline" lang="en">
+                            </div>
+                        </div>
+                    </div>
+                    <input type="text" id="task-desc" placeholder="任务描述（可选）" maxlength="500" class="desc-input">
+                </form>
+            </div>
+
+            <!-- 搜索 + 筛选栏 -->
+            <div class="card filter-card">
+                <div class="search-bar">
+                    <input type="text" id="search-input" placeholder="搜索任务标题或描述..." maxlength="100">
+                </div>
+                <div class="filter-row">
+                    <select id="filter-category">
+                        <option value="全部">全部分类</option>
+                        <option value="工作">工作</option>
+                        <option value="学习">学习</option>
+                        <option value="生活">生活</option>
+                        <option value="家庭">家庭</option>
+                        <option value="其他">其他</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- 排序视图切换 -->
+            <div class="sort-tabs">
+                <button class="sort-tab active" data-sort="created">
+                    <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/></svg>
+                    最近创建
+                </button>
+                <button class="sort-tab" data-sort="deadline">
+                    <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"/></svg>
+                    最近截止
+                </button>
+                <button class="sort-tab" data-sort="importance">
+                    <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                    重要程度
+                </button>
+            </div>
+
+            <!-- 待办事项 -->
+            <div class="task-section">
+                <h2 class="section-title">
+                    <span class="section-icon">&#128203;</span>
+                    待办事项
+                    <span class="badge" id="badge-pending">0</span>
+                    <div class="section-actions">
+                        <button class="btn btn-outline btn-sm batch-btn" data-status="pending" title="批量操作">
+                            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+                            批量
+                        </button>
+                        <button class="btn btn-outline btn-sm clear-btn" data-status="pending" title="清空待办">
+                            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+                            清空
+                        </button>
+                    </div>
+                </h2>
+                <div class="batch-actions" id="batch-actions-pending">
+                    <label class="batch-select-all">
+                        <input type="checkbox" onchange="selectAllTasks('pending')">
+                        全选
+                    </label>
+                    <span class="batch-count">已选择 0 项</span>
+                    <button class="btn btn-danger btn-sm" onclick="promptBatchDelete()">批量删除</button>
+                </div>
+                <div id="list-pending" class="task-list"></div>
+                <div class="empty-state" id="empty-pending">
+                    <div class="empty-emoji">&#127919;</div>
+                    <p class="empty-text">快来创建第一项任务吧！</p>
+                    <p class="empty-sub">你的高效之旅从这里开始</p>
+                </div>
+                <div class="pagination" id="pagination-pending"></div>
+            </div>
+
+            <!-- 已完成 -->
+            <div class="task-section">
+                <h2 class="section-title">
+                    <span class="section-icon">&#9989;</span>
+                    已完成
+                    <span class="badge badge-done" id="badge-done">0</span>
+                    <div class="section-actions">
+                        <button class="btn btn-outline btn-sm batch-btn" data-status="completed" title="批量操作">
+                            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+                            批量
+                        </button>
+                        <button class="btn btn-outline btn-sm clear-btn" data-status="completed" title="清空已完成">
+                            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+                            清空
+                        </button>
+                    </div>
+                </h2>
+                <div class="batch-actions" id="batch-actions-completed">
+                    <label class="batch-select-all">
+                        <input type="checkbox" onchange="selectAllTasks('completed')">
+                        全选
+                    </label>
+                    <span class="batch-count">已选择 0 项</span>
+                    <button class="btn btn-danger btn-sm" onclick="promptBatchDelete()">批量删除</button>
+                </div>
+                <div id="list-done" class="task-list"></div>
+                <div class="empty-state" id="empty-done">
+                    <div class="empty-emoji">&#128170;</div>
+                    <p class="empty-text">完成任务后会在这里显示</p>
+                    <p class="empty-sub">加油，你是最棒的！</p>
+                </div>
+                <div class="pagination" id="pagination-done"></div>
+            </div>
+
+            <!-- 两栏布局：自动生成任务 + 已过期 -->
+            <div class="two-column-section">
+                <!-- 自动生成模板列表 -->
+                <div class="task-section column-section" id="templates-section">
+                    <h2 class="section-title">
+                        <span class="section-icon">&#128260;</span>
+                        自动生成任务
+                        <span class="badge" id="badge-templates">0</span>
+                    </h2>
+                    <div id="list-templates" class="task-list"></div>
+                    <div class="empty-state" id="empty-templates">
+                        <div class="empty-emoji">&#128260;</div>
+                        <p class="empty-text">还没有自动生成任务</p>
+                        <p class="empty-sub">点击上方"自动生成"按钮创建</p>
+                    </div>
+                </div>
+
+                <!-- 已过期 -->
+                <div class="task-section column-section">
+                    <h2 class="section-title">
+                        <span class="section-icon">&#128679;</span>
+                        已过期
+                        <span class="badge badge-expired" id="badge-expired">0</span>
+                        <div class="section-actions">
+                            <button class="btn btn-outline btn-sm batch-btn" data-status="expired" title="批量操作">
+                                <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/></svg>
+                                批量
+                            </button>
+                            <button class="btn btn-outline btn-sm clear-btn" data-status="expired" title="清空已过期">
+                                <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+                                清空
+                            </button>
+                        </div>
+                    </h2>
+                    <div class="batch-actions" id="batch-actions-expired">
+                        <label class="batch-select-all">
+                            <input type="checkbox" onchange="selectAllTasks('expired')">
+                            全选
+                        </label>
+                        <span class="batch-count">已选择 0 项</span>
+                        <button class="btn btn-danger btn-sm" onclick="promptBatchDelete()">批量删除</button>
+                    </div>
+                    <div id="list-expired" class="task-list"></div>
+                    <div class="empty-state" id="empty-expired">
+                        <div class="empty-emoji">&#127881;</div>
+                        <p class="empty-text">真不错，你没有错过任何一个任务！</p>
+                        <p class="empty-sub">继续保持，你的时间管理很棒~</p>
+                    </div>
+                    <div class="empty-state hidden" id="empty-expired-has">
+                        <div class="empty-emoji">&#128532;</div>
+                        <p class="empty-text">很遗憾，你错过了这些任务</p>
+                        <p class="empty-sub">但我相信你接下来会越做越好，加油！</p>
+                    </div>
+                    <div class="pagination" id="pagination-expired"></div>
+                </div>
+            </div>
+
+            <!-- 回收站 -->
+            <div class="task-section recycle-section" id="recycle-section">
+                <h2 class="section-title">
+                    <span class="section-icon">&#128465;</span>
+                    回收站
+                    <span class="badge" id="badge-recycle">0</span>
+                    <button class="btn btn-outline btn-sm recycle-clear-btn" id="btn-clear-recycle" title="清空回收站">
+                        清空
+                    </button>
+                </h2>
+                <div id="list-recycle" class="task-list"></div>
+                <div class="empty-state" id="empty-recycle">
+                    <div class="empty-emoji">&#128465;</div>
+                    <p class="empty-text">回收站是空的</p>
+                    <p class="empty-sub">删除的任务会暂时保存在这里</p>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- ==================== 用户中心 ==================== -->
+        <div id="view-user-center" class="view hidden">
+            <header class="topbar">
+                <div class="topbar-left">
+                    <div class="topbar-logo">
+                        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" width="26" height="26">
+                            <rect x="4" y="8" width="40" height="32" rx="6" stroke="url(#g4)" stroke-width="2.5" fill="none"/>
+                            <path d="M14 24L21 31L34 17" stroke="url(#g4)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                            <defs><linearGradient id="g4" x1="0" y1="0" x2="48" y2="48"><stop offset="0%" stop-color="#667eea"/><stop offset="100%" stop-color="#764ba2"/></linearGradient></defs>
+                        </svg>
+                        <span class="topbar-brand">用户中心</span>
+                    </div>
+                </div>
+                <div class="topbar-right">
+                    <button class="btn btn-sm btn-outline" id="btn-back-main">
+                        <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clip-rule="evenodd"/></svg>
+                        返回
+                    </button>
+                </div>
+            </header>
+
+            <div class="user-center-content">
+                <!-- 用户信息卡片 -->
+                <div class="card user-info-card">
+                    <h3 class="card-title">用户信息</h3>
+                    <div class="user-info-row">
+                        <span class="user-info-label">手机号：</span>
+                        <span class="user-info-value" id="user-phone">-</span>
+                    </div>
+                </div>
+
+                <!-- 修改密码卡片 -->
+                <div class="card change-password-card">
+                    <h3 class="card-title">修改密码</h3>
+                    <form id="form-change-password" autocomplete="off">
+                        <div class="form-group">
+                            <label for="old-password">原密码</label>
+                            <input type="password" id="old-password" placeholder="请输入原密码" minlength="6" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="new-password">新密码</label>
+                            <input type="password" id="new-password" placeholder="至少6位" minlength="6" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="confirm-password">确认新密码</label>
+                            <input type="password" id="confirm-password" placeholder="再次输入新密码" minlength="6" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">修改密码</button>
+                    </form>
+                </div>
+
+                <!-- 任务统计饼图 -->
+                <div class="card stats-chart-card">
+                    <h3 class="card-title">任务完成情况</h3>
+                    <div class="chart-container">
+                        <canvas id="pie-chart"></canvas>
+                    </div>
+                    <div class="chart-legend" id="pie-legend"></div>
+                </div>
+
+                <!-- 月度完成柱状图 -->
+                <div class="card monthly-chart-card">
+                    <h3 class="card-title">月度任务完成量</h3>
+                    <div class="chart-container">
+                        <canvas id="bar-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="toast"></div>
+
+    <!-- 删除确认弹窗 -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-icon">&#9888;&#65039;</div>
+            <p class="modal-text">确定要删除这个任务吗？</p>
+            <p class="modal-sub">删除后无法恢复</p>
+            <div class="modal-actions">
+                <button class="btn btn-outline" id="modal-cancel">取消</button>
+                <button class="btn btn-danger" id="modal-confirm">确认删除</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 批量操作确认弹窗 -->
+    <div id="batch-modal-overlay" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-icon">&#9888;&#65039;</div>
+            <p class="modal-text" id="batch-modal-text">确定要删除选中的任务吗？</p>
+            <p class="modal-sub" id="batch-modal-sub">此操作无法撤销</p>
+            <div class="modal-actions">
+                <button class="btn btn-outline" id="batch-modal-cancel">取消</button>
+                <button class="btn btn-danger" id="batch-modal-confirm">确认删除</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 自动生成任务弹窗 -->
+    <div id="generator-overlay" class="modal-overlay hidden">
+        <div class="modal generator-modal">
+            <div class="modal-icon">&#128260;</div>
+            <p class="modal-text">任务自动生成器</p>
+            <p class="modal-sub">设置规则后，系统将按时间自动生成任务</p>
+
+            <!-- 频率选择标签 -->
+            <div class="generator-tabs">
+                <button class="gen-tab active" data-freq="daily">按日</button>
+                <button class="gen-tab" data-freq="weekly">按周</button>
+                <button class="gen-tab" data-freq="monthly">按月</button>
+            </div>
+
+            <form id="form-generator" autocomplete="off">
+                <div class="form-group">
+                    <label for="gen-title">任务标题</label>
+                    <input type="text" id="gen-title" placeholder="输入任务标题" maxlength="100" required>
+                </div>
+                <div class="form-group">
+                    <label for="gen-desc">任务描述</label>
+                    <input type="text" id="gen-desc" placeholder="任务描述（可选）" maxlength="500">
+                </div>
+
+                <!-- 按日选项 -->
+                <div class="gen-freq-panel" id="gen-daily-panel">
+                    <div class="adv-row">
+                        <div class="adv-field">
+                            <label>生成时间</label>
+                            <input type="time" id="gen-daily-time" value="09:00">
+                        </div>
+                        <div class="adv-field">
+                            <label>截止时间</label>
+                            <input type="time" id="gen-daily-deadline" value="18:00">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 按周选项 -->
+                <div class="gen-freq-panel hidden" id="gen-weekly-panel">
+                    <div class="adv-row">
+                        <div class="adv-field">
+                            <label>生成星期</label>
+                            <select id="gen-weekly-day">
+                                <option value="1">周一</option>
+                                <option value="2">周二</option>
+                                <option value="3">周三</option>
+                                <option value="4">周四</option>
+                                <option value="5">周五</option>
+                                <option value="6">周六</option>
+                                <option value="7">周日</option>
+                            </select>
+                        </div>
+                        <div class="adv-field">
+                            <label>生成时间</label>
+                            <input type="time" id="gen-weekly-time" value="09:00">
+                        </div>
+                    </div>
+                    <div class="adv-row">
+                        <div class="adv-field">
+                            <label>截止星期</label>
+                            <select id="gen-weekly-deadline-day">
+                                <option value="1">周一</option>
+                                <option value="2">周二</option>
+                                <option value="3">周三</option>
+                                <option value="4">周四</option>
+                                <option value="5">周五</option>
+                                <option value="6">周六</option>
+                                <option value="7">周日</option>
+                            </select>
+                        </div>
+                        <div class="adv-field">
+                            <label>截止时间</label>
+                            <input type="time" id="gen-weekly-deadline-time" value="18:00">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 按月选项 -->
+                <div class="gen-freq-panel hidden" id="gen-monthly-panel">
+                    <div class="adv-row">
+                        <div class="adv-field">
+                            <label>生成日期</label>
+                            <select id="gen-monthly-day">
+                                <option value="1">1号</option>
+                                <option value="5">5号</option>
+                                <option value="10">10号</option>
+                                <option value="15">15号</option>
+                                <option value="20">20号</option>
+                                <option value="25">25号</option>
+                                <option value="28">28号</option>
+                                <option value="31">31号</option>
+                            </select>
+                        </div>
+                        <div class="adv-field">
+                            <label>生成时间</label>
+                            <input type="time" id="gen-monthly-time" value="09:00">
+                        </div>
+                    </div>
+                    <div class="adv-row">
+                        <div class="adv-field">
+                            <label>截止日期</label>
+                            <select id="gen-monthly-deadline-day">
+                                <option value="1">1号</option>
+                                <option value="5">5号</option>
+                                <option value="10">10号</option>
+                                <option value="15">15号</option>
+                                <option value="20">20号</option>
+                                <option value="25">25号</option>
+                                <option value="28">28号</option>
+                                <option value="31">31号</option>
+                            </select>
+                        </div>
+                        <div class="adv-field">
+                            <label>截止时间</label>
+                            <input type="time" id="gen-monthly-deadline-time" value="18:00">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 通用选项 -->
+                <div class="adv-row">
+                    <div class="adv-field">
+                        <label>分类</label>
+                        <select id="gen-category">
+                            <option value="工作">工作</option>
+                            <option value="学习">学习</option>
+                            <option value="生活">生活</option>
+                            <option value="家庭">家庭</option>
+                            <option value="其他" selected>其他</option>
+                        </select>
+                    </div>
+                    <div class="adv-field">
+                        <label>重要程度</label>
+                        <div class="star-rating" id="star-rating-gen">
+                            <span class="star" data-val="1">&#9733;</span>
+                            <span class="star" data-val="2">&#9733;</span>
+                            <span class="star" data-val="3">&#9733;</span>
+                            <span class="star" data-val="4">&#9733;</span>
+                            <span class="star" data-val="5">&#9733;</span>
+                        </div>
+                        <input type="hidden" id="gen-star-rating" value="0">
+                    </div>
+                </div>
+
+                <p class="generator-tip">&#128161; 此任务将按规则自动生成，如需停止请在列表中删除此模板</p>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" id="generator-cancel">取消</button>
+                    <button type="submit" class="btn btn-primary">创建模板</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

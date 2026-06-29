@@ -1,0 +1,15 @@
+target/
+data/
+users.json
+taskflow.log
+*.log
+.DS_Store
+
+.env
+.env.*
+.vscode/
+.idea/
+
+*.exe
+*.dmg
+*.app
