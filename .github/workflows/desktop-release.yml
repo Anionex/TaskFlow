@@ -1,6 +1,8 @@
 name: desktop-release
 
 # 手动触发或推 v* tag 时，跨平台打包 TaskFlow 桌面端：macOS(arm).dmg + Windows(x86).exe
+# 每个 runner 用原生架构编译（macos-latest=arm64 → dmg；windows-latest=x64 → exe），不传 --target，
+# 否则 cargo 产物落到 target/<triple>/release 而打包器去 target/release 找会失败。
 on:
   workflow_dispatch:
   push:
@@ -13,11 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - platform: macos-latest      # Apple Silicon → .dmg
-            target: aarch64-apple-darwin
-          - platform: windows-latest    # x86_64 → .exe (NSIS)
-            target: x86_64-pc-windows-msvc
+        platform: [macos-latest, windows-latest]
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -29,8 +27,6 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -46,11 +42,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # 桌面端指向已部署的后端
-          VITE_API_BASE: https://154.36.158.18.sslip.io/api
+          VITE_API_BASE: https://taskflowai.asia/api
         with:
           projectPath: frontend
           tauriScript: npm run tauri --
-          args: --target ${{ matrix.target }}
           tagName: desktop-v__VERSION__
           releaseName: 'TaskFlow 桌面端 v__VERSION__'
           releaseBody: 'macOS(.dmg) 与 Windows(.exe) 安装包，自动构建。'
