@@ -1061,7 +1061,12 @@ async fn ai_parse_with_mock_returns_valid_structure_and_does_not_write_db() {
 
     assert!(r["success"].as_bool().unwrap(), "parse should succeed: {r}");
 
-    let data = &r["data"];
+    // New contract: parse returns { items: [ ... ] }; a single-task LLM
+    // response is normalized into a one-element array.
+    let items = r["data"]["items"].as_array().expect("data.items must be array");
+    assert_eq!(items.len(), 1, "single sentence should yield one item");
+    let data = &items[0];
+
     // Structure assertions
     assert!(data["title"].is_string(), "title must be string");
     assert!(data["description"].is_string(), "description must be string");

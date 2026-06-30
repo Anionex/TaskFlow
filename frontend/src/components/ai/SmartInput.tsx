@@ -1,7 +1,6 @@
 /**
  * SmartInput — the hero natural language entry point.
- * Anatomy: auto-grow textarea + hairline underline accent on focus,
- * footer with "批量捕获" link and primary "智能解析" button.
+ * One action: 整理. The model decides whether the text is one task or many.
  */
 import { useState, useRef, useEffect } from 'react'
 import { Sparkles } from 'lucide-react'
@@ -9,12 +8,11 @@ import { Spinner } from '@/components/ui/Spinner'
 
 interface Props {
   onParse: (text: string) => Promise<void>
-  onBrainDump: (text: string) => Promise<void>
   loading?: boolean
   loadingLabel?: string
 }
 
-export function SmartInput({ onParse, onBrainDump, loading, loadingLabel }: Props) {
+export function SmartInput({ onParse, loading, loadingLabel }: Props) {
   const [text, setText] = useState('')
   const [focused, setFocused] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -30,12 +28,6 @@ export function SmartInput({ onParse, onBrainDump, loading, loadingLabel }: Prop
   async function handleParse() {
     if (!text.trim() || loading) return
     await onParse(text.trim())
-    setText('')
-  }
-
-  async function handleBrainDump() {
-    if (!text.trim() || loading) return
-    await onBrainDump(text.trim())
     setText('')
   }
 
@@ -66,7 +58,7 @@ export function SmartInput({ onParse, onBrainDump, loading, loadingLabel }: Prop
             handleParse()
           }
         }}
-        placeholder="例如：下周五前完成设计稿，工作相关，比较重要"
+        placeholder="写下要做的事，一件或多件都行，我来分清楚"
         rows={2}
         style={{
           width: '100%',
@@ -100,18 +92,9 @@ export function SmartInput({ onParse, onBrainDump, loading, loadingLabel }: Prop
             {loadingLabel || '正在整理…'}
           </span>
         ) : (
-          <button
-            onClick={handleBrainDump}
-            disabled={!text.trim()}
-            style={{
-              background: 'none', border: 'none', cursor: text.trim() ? 'pointer' : 'default',
-              color: text.trim() ? 'var(--accent)' : 'var(--text-muted)',
-              fontSize: 'var(--text-sm)', fontFamily: 'var(--font-sans)',
-              padding: 0, transition: 'color var(--dur-fast)',
-            }}
-          >
-            批量捕获
-          </button>
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+            一件或多件，由系统判断
+          </span>
         )}
 
         <button
@@ -133,7 +116,7 @@ export function SmartInput({ onParse, onBrainDump, loading, loadingLabel }: Prop
           }}
         >
           <Sparkles size={12} aria-hidden />
-          智能解析
+          整理
         </button>
       </div>
     </div>

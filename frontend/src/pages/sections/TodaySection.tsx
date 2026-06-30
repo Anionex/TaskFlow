@@ -16,9 +16,7 @@ import type { ParsedTask, MorningResult, EveningResult, UserStats, CheckinStatus
 export function TodaySection() {
   const { addToast } = useAppStore()
   const [parseLoading, setParseLoading] = useState(false)
-  const [parseDraft, setParseDraft] = useState<ParsedTask | null>(null)
-  const [braindumpLoading, setBraindumpLoading] = useState(false)
-  const [braindumpDrafts, setBraindumpDrafts] = useState<ParsedTask[]>([])
+  const [drafts, setDrafts] = useState<ParsedTask[]>([])
 
   const [morningLoading, setMorningLoading] = useState(false)
   const [morningData, setMorningData] = useState<MorningResult | null>(null)
@@ -51,11 +49,14 @@ export function TodaySection() {
 
   async function handleParse(text: string) {
     setParseLoading(true)
-    setParseDraft(null)
+    setDrafts([])
     try {
       const res = await aiApi.parse(text)
-      if (res.success && res.data) {
-        setParseDraft(res.data)
+      if (res.success && res.data && res.data.items.length > 0) {
+        setDrafts(res.data.items)
+      } else if (res.success) {
+        addToast({ type: 'error', message: '没解析出任务，请手动填写' })
+        setShowCreate(true)
       } else {
         addToast({ type: 'error', message: res.message || '解析失败，请手动填写' })
         setShowCreate(true)
@@ -68,24 +69,7 @@ export function TodaySection() {
     }
   }
 
-  async function handleBrainDump(text: string) {
-    setBraindumpLoading(true)
-    setBraindumpDrafts([])
-    try {
-      const res = await aiApi.braindump(text)
-      if (res.success && res.data) {
-        setBraindumpDrafts(res.data.items)
-      } else {
-        addToast({ type: 'error', message: res.message || '批量解析失败' })
-      }
-    } catch {
-      addToast({ type: 'error', message: 'AI 服务暂时不可用' })
-    } finally {
-      setBraindumpLoading(false)
-    }
-  }
-
-  async function confirmParsedTask(draft: ParsedTask) {
+  async function confirmDraft(draft: ParsedTask, idx: number) {
     const res = await tasksApi.create({
       title: draft.title,
       description: draft.description,
@@ -96,25 +80,7 @@ export function TodaySection() {
     })
     if (res.success) {
       addToast({ type: 'success', message: '任务已创建' })
-      setParseDraft(null)
-      loadStats()
-    } else {
-      addToast({ type: 'error', message: res.message })
-    }
-  }
-
-  async function confirmBraindumpTask(draft: ParsedTask, idx: number) {
-    const res = await tasksApi.create({
-      title: draft.title,
-      description: draft.description,
-      category: draft.category,
-      star_rating: draft.star_rating,
-      start_date: draft.start_date ?? undefined,
-      deadline: draft.deadline ?? undefined,
-    })
-    if (res.success) {
-      addToast({ type: 'success', message: '任务已创建' })
-      setBraindumpDrafts((d) => d.filter((_, i) => i !== idx))
+      setDrafts((d) => d.filter((_, i) => i !== idx))
       loadStats()
     } else {
       addToast({ type: 'error', message: res.message })
@@ -253,33 +219,25 @@ export function TodaySection() {
       <div style={{ marginBottom: '24px' }}>
         <SmartInput
           onParse={handleParse}
-          onBrainDump={handleBrainDump}
-          loading={parseLoading || braindumpLoading}
-          loadingLabel={braindumpLoading ? '正在批量整理…' : '正在解析…'}
+          loading={parseLoading}
+          loadingLabel="正在整理…"
         />
 
-        {/* Parse draft */}
-        {parseDraft && (
-          <AiDraftCard
-            draft={parseDraft}
-            onConfirm={confirmParsedTask}
-            onDiscard={() => setParseDraft(null)}
-          />
-        )}
-
-        {/* Braindump drafts */}
-        {braindumpDrafts.length > 0 && (
+        {/* Drafts — 1 or N, the model decides */}
+        {drafts.length > 0 && (
           <div style={{ marginTop: '16px' }}>
-            <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-              共解析出 {braindumpDrafts.length} 个任务，逐一确认后入库：
-            </p>
+            {drafts.length > 1 && (
+              <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                共整理出 {drafts.length} 个任务，逐一确认后入库：
+              </p>
+            )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {braindumpDrafts.map((d, i) => (
+              {drafts.map((d, i) => (
                 <AiDraftCard
                   key={i}
                   draft={d}
-                  onConfirm={(draft) => confirmBraindumpTask(draft, i)}
-                  onDiscard={() => setBraindumpDrafts((arr) => arr.filter((_, j) => j !== i))}
+                  onConfirm={(draft) => confirmDraft(draft, i)}
+                  onDiscard={() => setDrafts((arr) => arr.filter((_, j) => j !== i))}
                 />
               ))}
             </div>

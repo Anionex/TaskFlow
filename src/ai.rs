@@ -139,24 +139,29 @@ pub async fn parse_task(
 
     let system = format!(
         r#"你是任务解析助手。今天日期：{}。
-请从用户输入中提取任务信息，以严格JSON格式输出，字段如下：
+用户输入一段文字，由你判断里面包含几件事：一句话通常是1件，一段含多件事则拆成多条。
+以严格JSON格式输出一个数组：
 {{
-  "title": "任务标题（简洁可执行）",
-  "description": "备注（可为空字符串）",
-  "category": "学习|工作|生活|家庭|其他",
-  "star_rating": 0-5整数（0=普通，5=最重要）,
-  "start_date": "ISO8601时间字符串或null",
-  "deadline": "ISO8601时间字符串或null",
-  "suggestion": "改写建议（若任务含糊则给出更具体的建议，否则null）"
+  "items": [
+    {{
+      "title": "任务标题（简洁可执行）",
+      "description": "备注（可为空字符串）",
+      "category": "学习|工作|生活|家庭|其他",
+      "star_rating": 0-5整数（0=普通，5=最重要）,
+      "start_date": "ISO8601时间字符串或null",
+      "deadline": "ISO8601时间字符串或null",
+      "suggestion": "改写建议（若任务含糊则给出更具体的建议，否则null）"
+    }}
+  ]
 }}
-只输出JSON，不要其他文字。时区使用+08:00。category只能是以上5个之一。"#,
+即使只有1件事也要放进items数组。只输出JSON，不要其他文字。时区使用+08:00。category只能是以上5个之一。"#,
         today
     );
 
     match call_llm(&cfg, &system, &body.text).await {
         Ok(content) => {
             match serde_json::from_str::<Value>(&content) {
-                Ok(data) => (StatusCode::OK, ok("解析成功", data)),
+                Ok(data) => (StatusCode::OK, ok("解析成功", normalize_items(data))),
                 Err(_) => (StatusCode::OK, (ai_error())),
             }
         }
@@ -165,6 +170,21 @@ pub async fn parse_task(
             (StatusCode::OK, ai_error())
         }
     }
+}
+
+/// Normalize the LLM output into `{ "items": [ ... ] }`.
+/// Accepts either a bare task object, a `{items:[...]}` wrapper, or a top-level array.
+fn normalize_items(data: Value) -> Value {
+    if let Some(items) = data.get("items") {
+        if items.is_array() {
+            return json!({ "items": items });
+        }
+    }
+    if data.is_array() {
+        return json!({ "items": data });
+    }
+    // Single task object → wrap into a one-element array.
+    json!({ "items": [data] })
 }
 
 // ── 3.10.2 批量捕获 ────────────────────────────────────────────────────────
@@ -529,5 +549,34 @@ pub async fn evening_summary(
             tracing::warn!("evening_summary LLM error: {e}");
             (StatusCode::OK, ai_error())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_items;
+    use serde_json::json;
+
+    #[test]
+    fn wraps_items_array() {
+        let input = json!({ "items": [{ "title": "a" }, { "title": "b" }] });
+        let out = normalize_items(input);
+        assert_eq!(out["items"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn wraps_top_level_array() {
+        let input = json!([{ "title": "a" }]);
+        let out = normalize_items(input);
+        assert_eq!(out["items"].as_array().unwrap().len(), 1);
+        assert_eq!(out["items"][0]["title"], "a");
+    }
+
+    #[test]
+    fn wraps_single_object() {
+        let input = json!({ "title": "solo", "category": "工作" });
+        let out = normalize_items(input);
+        assert_eq!(out["items"].as_array().unwrap().len(), 1);
+        assert_eq!(out["items"][0]["title"], "solo");
     }
 }

@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { authApi } from '@/api/auth'
 import { useAppStore } from '@/store'
 import { Spinner } from '@/components/ui/Spinner'
+import { AnimatedLogo } from '@/components/ui/AnimatedLogo'
 
 export function LoginPage() {
   const navigate = useNavigate()
@@ -46,8 +47,8 @@ export function LoginPage() {
       <div style={{ width: '100%', maxWidth: 360 }}>
         {/* Brand */}
         <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-          <div style={{ fontSize: 'var(--text-xl)', fontWeight: 'var(--fw-medium)', color: 'var(--accent)', marginBottom: '6px' }}>
-            TaskFlow
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '8px' }}>
+            <AnimatedLogo size={30} wordmark />
           </div>
           <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
             欢迎回来

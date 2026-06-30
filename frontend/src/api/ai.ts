@@ -1,9 +1,10 @@
 import { api } from './client'
-import type { ParsedTask, BraindumpResult, RewriteResult, DecomposeResult, SearchResult, MorningResult, EveningResult } from '../types'
+import type { BraindumpResult, RewriteResult, DecomposeResult, SearchResult, MorningResult, EveningResult } from '../types'
 
 export const aiApi = {
+  // The model decides how many tasks the text contains; always returns { items: [...] }.
   parse: (text: string) =>
-    api.postAi<ParsedTask>('/ai/parse', { text }),
+    api.postAi<BraindumpResult>('/ai/parse', { text }),
 
   braindump: (text: string) =>
     api.postAi<BraindumpResult>('/ai/braindump', { text }),

@@ -231,12 +231,17 @@ export function SettingsSection() {
               {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
             </button>
           </div>
+          <p style={{ fontSize: 'var(--text-xs)', marginTop: '6px' }}>
+            <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none' }}>
+              没有 API key？点此前往 DeepSeek 申请
+            </a>
+          </p>
         </Field>
-        <Field label="模型名称" hint="留空用服务端默认 deepseek-v4-flash；可自定义">
-          <input type="text" value={llmModel} onChange={(e) => setLlmModel(e.target.value)} placeholder="deepseek-v4-flash" style={inputStyle} onFocus={focusIn} onBlur={focusOut} />
+        <Field label="模型名称" hint="留空走服务端默认；自带 DeepSeek key 填 deepseek-chat">
+          <input type="text" value={llmModel} onChange={(e) => setLlmModel(e.target.value)} placeholder="deepseek-chat" style={inputStyle} onFocus={focusIn} onBlur={focusOut} />
         </Field>
-        <Field label="模型 Base URL（可选）" hint="大模型服务地址，留空使用模型默认；例如 https://api.deepseek.com/v1">
-          <input type="text" value={llmBase} onChange={(e) => setLlmBase(e.target.value)} placeholder="https://api.deepseek.com/v1" style={inputStyle} onFocus={focusIn} onBlur={focusOut} />
+        <Field label="模型 Base URL（可选）" hint="留空走服务端默认；自带 DeepSeek key 填 https://api.deepseek.com">
+          <input type="text" value={llmBase} onChange={(e) => setLlmBase(e.target.value)} placeholder="https://api.deepseek.com" style={inputStyle} onFocus={focusIn} onBlur={focusOut} />
         </Field>
         <button
           onClick={saveLlm}
@@ -320,6 +325,32 @@ export function SettingsSection() {
         </div>
         <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: '10px' }}>导出为 JSON 格式，可用于备份或迁移数据。</p>
       </Section>
+
+      {/* Help */}
+      <Section title="使用说明">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {HELP_ITEMS.map((h) => (
+            <div key={h.title}>
+              <div style={{ fontSize: 'var(--text-sm)', fontWeight: 'var(--fw-medium)', color: 'var(--text-primary)', marginBottom: '3px' }}>
+                {h.title}
+              </div>
+              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 'var(--lh-normal)' }}>
+                {h.body}
+              </div>
+            </div>
+          ))}
+        </div>
+      </Section>
     </PageContainer>
   )
 }
+
+const HELP_ITEMS: { title: string; body: string }[] = [
+  { title: '添加任务', body: '在今日页输入框写下要做的事，点"整理"。系统判断是一件还是多件，生成草稿卡片，确认后入库。' },
+  { title: '拆解大目标', body: '编辑任务时点"AI 拆解"，把大目标拆成一组子任务，确认后建成任务组。' },
+  { title: '检索', body: '在检索页用自然语言描述你要找的任务，记不清原话也能找到。' },
+  { title: '早间推荐 / 晚间总结', body: '今日页点"早间推荐"看今天先做什么，点"晚间总结"回顾一天。' },
+  { title: '循环模板', body: '在模板页建好重复任务，到点自动生成，也可点"生成循环任务"立即生成。' },
+  { title: '主题', body: '在上方"主题"切换普通、护眼、夜间。' },
+  { title: '大模型 Key', body: '在本页"大模型设置"填入你的 API Key。留空则用服务端默认。' },
+]
