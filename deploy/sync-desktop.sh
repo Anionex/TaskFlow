@@ -21,9 +21,9 @@ ls -la "$TMP"
 
 echo "==> [2/3] 同步到服务器 $SSH:$DL_DIR"
 ssh "$SSH" "mkdir -p $DL_DIR"
-# 不保留本地属主/权限（否则目录会变成 700/本地 UID，Caddy 无权读 → 403）；
-# 显式设目录 755、文件 644，并兜底再 chmod 一次。
-rsync -rtz --chmod=D755,F644 --no-owner --no-group --no-perms -e ssh "$TMP"/ "$SSH:$DL_DIR/"
+# 不用 -a：避免保留本地属主/权限（否则目录会变 700/本地 UID，Caddy 无权读 → 403）。
+# 仅 -rtz（macOS 自带 rsync 2.6.9 不支持 --chmod 的 D/F 语法），传完显式 chmod 兜底。
+rsync -rtz -e ssh "$TMP"/ "$SSH:$DL_DIR/"
 ssh "$SSH" "chmod 755 $DL_DIR && chmod 644 $DL_DIR/*"
 
 echo "==> [3/3] 服务器现有下载产物"
