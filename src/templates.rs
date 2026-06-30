@@ -275,6 +275,10 @@ pub async fn generate_tasks(
     let mut generated = 0u32;
 
     for tmpl in &templates {
+        // 每个习惯每天至多生成一次：当日已生成（last_generated==今天）则跳过，保证手动生成幂等。
+        if tmpl.last_generated == Some(today) {
+            continue;
+        }
         if generate_task_from_template(&state.db, tmpl, today).await {
             generated += 1;
         }

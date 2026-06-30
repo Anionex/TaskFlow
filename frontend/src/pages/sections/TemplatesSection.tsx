@@ -95,7 +95,7 @@ export function TemplatesSection() {
         res = await templatesApi.create(draft)
       }
       if (res.success) {
-        addToast({ type: 'success', message: editing ? '模板已更新' : '模板已创建' })
+        addToast({ type: 'success', message: editing ? '习惯已更新' : '习惯已创建' })
         setShowForm(false)
         load()
       } else {
@@ -107,7 +107,7 @@ export function TemplatesSection() {
   }
 
   async function handleDelete(id: string) {
-    if (!window.confirm('确认删除此模板？')) return
+    if (!window.confirm('确认删除此习惯？')) return
     const res = await templatesApi.delete(id)
     if (res.success) {
       addToast({ type: 'success', message: '已删除' })
@@ -119,7 +119,7 @@ export function TemplatesSection() {
 
   async function handleGenerate() {
     if (templates.length === 0) {
-      addToast({ type: 'info', message: '暂无可生成的任务，请先创建模板' })
+      addToast({ type: 'info', message: '暂无可生成的任务，请先创建习惯' })
       return
     }
     setGenerating(true)
@@ -132,7 +132,7 @@ export function TemplatesSection() {
         if (count > 0) {
           addToast({ type: 'success', message: `已生成 ${count} 个任务` })
         } else {
-          addToast({ type: 'info', message: '暂无可生成的任务，请先创建模板' })
+          addToast({ type: 'info', message: '暂无可生成的任务，请先创建习惯' })
         }
         load()
       } else {
@@ -150,7 +150,7 @@ export function TemplatesSection() {
   return (
     <PageContainer width={860}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
-        <h1 style={{ fontSize: 'var(--text-xl)', fontWeight: 'var(--fw-medium)', color: 'var(--text-primary)' }}>模板</h1>
+        <h1 style={{ fontSize: 'var(--text-xl)', fontWeight: 'var(--fw-medium)', color: 'var(--text-primary)' }}>习惯</h1>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
             onClick={handleGenerate}
@@ -165,7 +165,7 @@ export function TemplatesSection() {
             }}
           >
             {generating ? <Spinner size={12} /> : <Zap size={13} aria-hidden />}
-            生成循环任务
+            生成习惯任务
           </button>
           <button
             onClick={openCreate}
@@ -177,20 +177,20 @@ export function TemplatesSection() {
               cursor: 'pointer', fontFamily: 'var(--font-sans)',
             }}
           >
-            <Plus size={13} aria-hidden /> 新建模板
+            <Plus size={13} aria-hidden /> 新建习惯
           </button>
         </div>
       </div>
 
       <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: '24px' }}>
-        循环任务模板会在指定时间自动生成任务，点击"生成循环任务"可立即触发。
+        习惯会在指定时间自动生成任务，点击"生成习惯任务"可立即触发。
       </p>
 
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '48px' }}><Spinner size={20} /></div>
       ) : templates.length === 0 ? (
         <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-base)', color: 'var(--text-muted)', textAlign: 'center', padding: '48px 0' }}>
-          暂无模板，创建一个循环任务模板
+          暂无习惯，创建一个习惯
         </p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -228,7 +228,7 @@ export function TemplatesSection() {
       )}
 
       {/* Form modal */}
-      <Modal open={showForm} onClose={() => setShowForm(false)} title={editing ? '编辑模板' : '新建模板'} maxWidth={500}>
+      <Modal open={showForm} onClose={() => setShowForm(false)} title={editing ? '编辑习惯' : '新建习惯'} maxWidth={500}>
         <Field label="标题">
           <input type="text" value={draft.title ?? ''} onChange={(e) => set('title', e.target.value)} style={inputStyle} onFocus={focusIn} onBlur={focusOut} autoFocus />
         </Field>

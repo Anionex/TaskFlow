@@ -692,6 +692,92 @@ async fn templates_generate_without_templates_returns_hint() {
     );
 }
 
+#[tokio::test]
+async fn templates_generate_is_idempotent_per_day() {
+    let mut c = TestClient::new().await;
+    let phone = unique_phone();
+    let sid = c.register_and_login(&phone, "pass1234").await;
+    let h = c.session_header(&sid);
+
+    // Create one habit (template).
+    let r: Value = c
+        .http
+        .post(c.url("/templates"))
+        .headers(h.clone())
+        .json(&json!({
+            "title": "每日冥想",
+            "category": "生活",
+            "star_rating": 2,
+            "frequency": "daily",
+            "generate_day": 0,
+            "generate_time": "09:00",
+            "deadline_day": 0,
+            "deadline_time": "18:00"
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(r["success"].as_bool().unwrap(), "create template: {r}");
+
+    // First manual generate → should create 1 task.
+    let r: Value = c
+        .http
+        .post(c.url("/templates/generate"))
+        .headers(h.clone())
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(r["success"].as_bool().unwrap(), "first generate: {r}");
+    assert_eq!(
+        r["data"]["generated"].as_i64().unwrap(),
+        1,
+        "first generate should create exactly 1 task: {r}"
+    );
+
+    // Second manual generate the SAME day → must be skipped (last_generated==today).
+    let r: Value = c
+        .http
+        .post(c.url("/templates/generate"))
+        .headers(h.clone())
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(r["success"].as_bool().unwrap(), "second generate: {r}");
+    assert_eq!(
+        r["data"]["generated"].as_i64().unwrap(),
+        0,
+        "second same-day generate should create 0 tasks (dedupe): {r}"
+    );
+
+    // Task list must contain exactly one task from this habit (no duplicate).
+    let r: Value = c
+        .http
+        .get(c.url("/tasks"))
+        .headers(h.clone())
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let count = r["data"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|t| t["title"].as_str() == Some("每日冥想"))
+        .count();
+    assert_eq!(count, 1, "habit should have generated exactly one task, got {count}");
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 打卡测试
 // ═══════════════════════════════════════════════════════════════════════════
