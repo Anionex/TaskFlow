@@ -65,6 +65,12 @@ export function TasksSection() {
   const [sortBy, setSortBy] = useState<SortBy>('created')
   const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
+  const [searchMode, setSearchMode] = useState<'exact' | 'semantic'>('exact')
+  const [semanticActive, setSemanticActive] = useState(false)
+  const [semanticLoading, setSemanticLoading] = useState(false)
+  const [semanticResults, setSemanticResults] = useState<Task[]>([])
+  const [semanticExplanation, setSemanticExplanation] = useState<string | undefined>(undefined)
+  const [committedQuery, setCommittedQuery] = useState('')
   const [page, setPage] = useState(1)
   const [tasks, setTasks] = useState<Task[]>([])
   const [totalPages, setTotalPages] = useState(1)
@@ -122,7 +128,59 @@ export function TasksSection() {
 
   // Search on enter / debounce
   function handleSearchKey(e: React.KeyboardEvent) {
-    if (e.key === 'Enter') { setSearch(searchInput); setPage(1) }
+    if (e.key !== 'Enter') return
+    if (searchMode === 'semantic') {
+      runSemanticSearch()
+    } else {
+      setSearch(searchInput); setPage(1)
+    }
+  }
+
+  async function runSemanticSearch(queryOverride?: string) {
+    const q = (queryOverride ?? searchInput).trim()
+    if (!q) { setSemanticActive(false); setSemanticResults([]); setSemanticExplanation(undefined); setCommittedQuery(''); return }
+    setCommittedQuery(q)
+    setSemanticLoading(true)
+    setSemanticActive(true)
+    setSelected(new Set())
+    try {
+      // 把当前筛选选择器（状态 + 分类）作为检索上下文一并传给后端。
+      const res = await aiApi.search(q, { status: tab, category: category || undefined })
+      if (res.success && res.data) {
+        setSemanticResults(res.data.items)
+        setSemanticExplanation(res.data.explanation)
+      } else {
+        setSemanticResults([])
+        setSemanticExplanation(undefined)
+        addToast({ type: 'error', message: res.message || 'AI 服务暂时不可用' })
+      }
+    } catch {
+      setSemanticResults([])
+      setSemanticExplanation(undefined)
+      addToast({ type: 'error', message: 'AI 服务暂时不可用' })
+    } finally {
+      setSemanticLoading(false)
+    }
+  }
+
+  // 语义模式下，改动状态/分类筛选器时，自动用已提交的查询重新检索（选择器作为检索上下文）。
+  useEffect(() => {
+    if (searchMode === 'semantic' && committedQuery.trim()) {
+      runSemanticSearch(committedQuery)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, category])
+
+  function switchSearchMode(mode: 'exact' | 'semantic') {
+    setSearchMode(mode)
+    setSelected(new Set())
+    if (mode === 'exact') {
+      // Restore normal filtered listing
+      setSemanticActive(false)
+      setSemanticResults([])
+      setSemanticExplanation(undefined)
+      setCommittedQuery('')
+    }
   }
 
   async function toggleTask(id: string) {
@@ -308,6 +366,165 @@ export function TasksSection() {
     outline: 'none',
   }
 
+  // Fixed-width slots so the same field type lines up vertically across all rows.
+  const CAT_COL = 64
+  const STAR_COL = 76
+  const DATE_COL = 72
+  const ACTIONS_COL = 78
+
+  function renderTaskRow(task: Task) {
+    const isGroup = (task.subtask_total ?? 0) > 0
+    const isCollapsed = collapsed.has(task.id)
+    const overdue = isOverdue(task)
+    const isSelected = selected.has(task.id)
+
+    return (
+      <div key={task.id}>
+        {/* Task row */}
+        <div
+          onClick={() => toggleSelect(task.id)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            padding: '10px 4px',
+            borderBottom: '1px solid var(--border)',
+            background: isSelected ? 'var(--accent-soft)' : 'transparent',
+            transition: 'background var(--dur-fast)',
+            cursor: 'pointer',
+          }}
+        >
+          {/* Complete toggle */}
+          <button
+            onClick={(e) => { e.stopPropagation(); toggleTask(task.id) }}
+            aria-label={task.completed ? '标记未完成' : '标记完成'}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: task.completed ? 'var(--success)' : 'var(--border-strong)', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+          >
+            {task.completed ? <CheckSquare size={16} /> : <Square size={16} />}
+          </button>
+
+          {/* Collapse toggle for groups */}
+          {isGroup && (
+            <button
+              onClick={(e) => { e.stopPropagation(); toggleCollapse(task.id) }}
+              aria-label={isCollapsed ? '展开' : '收起'}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+            >
+              {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+            </button>
+          )}
+
+          {/* Title */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{
+              fontSize: 'var(--text-sm)',
+              color: task.completed ? 'var(--text-muted)' : 'var(--text-primary)',
+              textDecoration: task.completed ? 'line-through' : 'none',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            }}>
+              {task.title}
+            </div>
+            {isGroup && (
+              <ProgressMeter done={task.subtask_completed ?? 0} total={task.subtask_total ?? 0} />
+            )}
+          </div>
+
+          {/* Category */}
+          <div style={{ width: CAT_COL, flexShrink: 0, display: 'flex', justifyContent: 'flex-start' }}>
+            <CategoryPill cat={task.category} />
+          </div>
+
+          {/* Star */}
+          <div style={{ width: STAR_COL, flexShrink: 0, display: 'flex', justifyContent: 'flex-start' }}>
+            <StarRating value={task.star_rating} readonly size="sm" />
+          </div>
+
+          {/* Deadline (always reserve the slot, even when empty) */}
+          <div style={{ width: DATE_COL, flexShrink: 0, textAlign: 'right' }}>
+            {task.deadline && (
+              <span style={{ fontSize: 'var(--text-xs)', color: overdue ? 'var(--danger)' : 'var(--text-muted)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
+                {formatDate(task.deadline)}
+              </span>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div style={{ width: ACTIONS_COL, flexShrink: 0, display: 'flex', gap: '4px', justifyContent: 'flex-end' }}>
+            <button
+              onClick={(e) => { e.stopPropagation(); openEdit(task) }}
+              aria-label="编辑"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', padding: '3px' }}
+            >
+              <Edit2 size={13} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); setRewriteTask(task); setRewriteResult(null) }}
+              aria-label="AI 改写"
+              title="AI 改写 / 拆解"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', padding: '3px' }}
+            >
+              <Sparkles size={13} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); deleteTask(task.id) }}
+              aria-label="删除"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', padding: '3px' }}
+            >
+              <Trash2 size={13} />
+            </button>
+          </div>
+        </div>
+
+        {/* Subtasks (if group and not collapsed) */}
+        {isGroup && !isCollapsed && task.subtasks && task.subtasks.map((sub) => (
+          <div
+            key={sub.id}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              padding: '8px 4px 8px 44px',
+              borderBottom: '1px solid var(--border)',
+              borderLeft: '2px solid var(--border)',
+              marginLeft: '24px',
+            }}
+          >
+            <button
+              onClick={() => toggleTask(sub.id)}
+              aria-label={sub.completed ? '标记未完成' : '标记完成'}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: sub.completed ? 'var(--success)' : 'var(--border-strong)', display: 'flex', flexShrink: 0 }}
+            >
+              {sub.completed ? <CheckSquare size={14} /> : <Square size={14} />}
+            </button>
+            <span style={{
+              fontFamily: 'var(--font-mono)', fontSize: 'var(--text-2xs)',
+              color: 'var(--text-muted)', minWidth: '16px',
+            }}>
+              {sub.sort_order}.
+            </span>
+            <span style={{
+              fontSize: 'var(--text-sm)', flex: 1,
+              color: sub.completed ? 'var(--text-muted)' : 'var(--text-primary)',
+              textDecoration: sub.completed ? 'line-through' : 'none',
+            }}>
+              {sub.title}
+            </span>
+            {/* Star slot aligned with parent rows */}
+            <div style={{ width: STAR_COL, flexShrink: 0, display: 'flex', justifyContent: 'flex-start' }}>
+              <StarRating value={sub.star_rating} readonly size="sm" />
+            </div>
+            {/* Reserve deadline + actions columns so subtask stars line up */}
+            <div style={{ width: DATE_COL, flexShrink: 0 }} />
+            <div style={{ width: ACTIONS_COL, flexShrink: 0 }} />
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  const displayTasks = semanticActive ? semanticResults : tasks
+  const listLoading = semanticActive ? semanticLoading : loading
+
   return (
     <PageContainer>
       {/* Header */}
@@ -327,8 +544,11 @@ export function TasksSection() {
         </button>
       </div>
 
-      {/* Tab bar */}
-      <div style={{ display: 'flex', gap: '0', borderBottom: '1px solid var(--border)', marginBottom: '20px' }}>
+      {/* Tab bar — 始终渲染（避免切换搜索模式时布局跳动）。状态筛选在两种模式下都生效：
+          语义模式下它作为检索上下文，限定 AI 只在所选状态范围内匹配。 */}
+      <div style={{
+        display: 'flex', gap: '0', borderBottom: '1px solid var(--border)', marginBottom: '20px',
+      }}>
         {STATUS_TABS.map((t) => (
           <button
             key={t.id}
@@ -353,7 +573,7 @@ export function TasksSection() {
       <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
         <input
           type="text"
-          placeholder="搜索任务…"
+          placeholder={searchMode === 'semantic' ? '用自然语言描述你想找的任务…' : '搜索任务…'}
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
           onKeyDown={handleSearchKey}
@@ -361,6 +581,27 @@ export function TasksSection() {
           onBlur={(e) => { e.target.style.borderColor = 'var(--border-strong)'; e.target.style.boxShadow = 'none' }}
           style={{ ...inputStyle, flex: 1, minWidth: 180 }}
         />
+        {/* Search mode toggle: 精确 / 语义 */}
+        <div style={{ display: 'flex', border: '1px solid var(--border-strong)', borderRadius: 'var(--radius-sm)', overflow: 'hidden', flexShrink: 0 }}>
+          {(['exact', 'semantic'] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => switchSearchMode(m)}
+              style={{
+                background: searchMode === m ? 'var(--accent)' : 'var(--surface-1)',
+                color: searchMode === m ? 'var(--on-accent)' : 'var(--text-muted)',
+                border: 'none',
+                padding: '6px 12px',
+                fontSize: 'var(--text-sm)',
+                cursor: 'pointer',
+                fontFamily: 'var(--font-sans)',
+              }}
+            >
+              {m === 'exact' ? '精确' : '语义'}
+            </button>
+          ))}
+        </div>
+        {/* 分类/排序在两种模式都可用；语义模式下分类作为检索上下文限定范围 */}
         <select
           value={category}
           onChange={(e) => { setCategory(e.target.value as any); setPage(1) }}
@@ -409,17 +650,19 @@ export function TasksSection() {
             {batchDeleting ? <Spinner size={12} /> : <Trash2 size={12} aria-hidden />}
             批量删除
           </button>
-          <button
-            onClick={handleClearStatus}
-            style={{
-              background: 'none', border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-pill)', padding: '4px 12px',
-              fontSize: 'var(--text-sm)', color: 'var(--text-muted)',
-              cursor: 'pointer', fontFamily: 'var(--font-sans)',
-            }}
-          >
-            清空当前列表
-          </button>
+          {searchMode === 'exact' && (
+            <button
+              onClick={handleClearStatus}
+              style={{
+                background: 'none', border: '1px solid var(--border)',
+                borderRadius: 'var(--radius-pill)', padding: '4px 12px',
+                fontSize: 'var(--text-sm)', color: 'var(--text-muted)',
+                cursor: 'pointer', fontFamily: 'var(--font-sans)',
+              }}
+            >
+              清空当前列表
+            </button>
+          )}
           <button
             onClick={() => setSelected(new Set())}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', marginLeft: 'auto', display: 'flex', alignItems: 'center' }}
@@ -431,10 +674,10 @@ export function TasksSection() {
 
       {/* Total count */}
       <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: '12px' }}>
-        共 {total} 项
-        {selected.size === 0 && tasks.length > 0 && (
+        共 {semanticActive ? displayTasks.length : total} 项
+        {selected.size === 0 && displayTasks.length > 0 && (
           <button
-            onClick={() => setSelected(new Set(tasks.map((t) => t.id)))}
+            onClick={() => setSelected(new Set(displayTasks.map((t) => t.id)))}
             style={{ marginLeft: '12px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent)', fontSize: 'var(--text-xs)', fontFamily: 'var(--font-sans)' }}
           >
             全选当前页
@@ -442,166 +685,30 @@ export function TasksSection() {
         )}
       </div>
 
+      {/* Semantic explanation (voice-note style) */}
+      {semanticActive && !semanticLoading && semanticExplanation && (
+        <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', paddingLeft: '12px', borderLeft: '2px solid var(--accent)', marginBottom: '16px' }}>
+          {semanticExplanation}
+        </p>
+      )}
+
       {/* Task list */}
-      {loading ? (
+      {listLoading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '48px' }}>
           <Spinner size={20} />
         </div>
-      ) : tasks.length === 0 ? (
+      ) : displayTasks.length === 0 ? (
         <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-base)', color: 'var(--text-muted)', textAlign: 'center', padding: '48px 0' }}>
-          暂无任务
+          {semanticActive ? '没有找到相关任务' : '暂无任务'}
         </p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column' }}>
-          {tasks.map((task) => {
-            const isGroup = (task.subtask_total ?? 0) > 0
-            const isCollapsed = collapsed.has(task.id)
-            const overdue = isOverdue(task)
-            const isSelected = selected.has(task.id)
-
-            return (
-              <div key={task.id}>
-                {/* Task row */}
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    padding: '10px 4px',
-                    borderBottom: '1px solid var(--border)',
-                    background: isSelected ? 'var(--accent-soft)' : 'transparent',
-                    transition: 'background var(--dur-fast)',
-                  }}
-                >
-                  {/* Checkbox for batch */}
-                  <button
-                    onClick={() => toggleSelect(task.id)}
-                    aria-label={isSelected ? '取消选择' : '选择'}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: isSelected ? 'var(--accent)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', flexShrink: 0 }}
-                  >
-                    {isSelected ? <CheckSquare size={14} /> : <Square size={14} />}
-                  </button>
-
-                  {/* Complete toggle */}
-                  <button
-                    onClick={() => toggleTask(task.id)}
-                    aria-label={task.completed ? '标记未完成' : '标记完成'}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: task.completed ? 'var(--success)' : 'var(--border-strong)', display: 'flex', alignItems: 'center', flexShrink: 0 }}
-                  >
-                    {task.completed ? <CheckSquare size={16} /> : <Square size={16} />}
-                  </button>
-
-                  {/* Collapse toggle for groups */}
-                  {isGroup && (
-                    <button
-                      onClick={() => toggleCollapse(task.id)}
-                      aria-label={isCollapsed ? '展开' : '收起'}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', flexShrink: 0 }}
-                    >
-                      {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-                    </button>
-                  )}
-
-                  {/* Title */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{
-                      fontSize: 'var(--text-sm)',
-                      color: task.completed ? 'var(--text-muted)' : 'var(--text-primary)',
-                      textDecoration: task.completed ? 'line-through' : 'none',
-                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                    }}>
-                      {task.title}
-                    </div>
-                    {isGroup && (
-                      <ProgressMeter done={task.subtask_completed ?? 0} total={task.subtask_total ?? 0} />
-                    )}
-                  </div>
-
-                  {/* Category */}
-                  <CategoryPill cat={task.category} />
-
-                  {/* Star */}
-                  <StarRating value={task.star_rating} readonly size="sm" />
-
-                  {/* Deadline */}
-                  {task.deadline && (
-                    <span style={{ fontSize: 'var(--text-xs)', color: overdue ? 'var(--danger)' : 'var(--text-muted)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
-                      {formatDate(task.deadline)}
-                    </span>
-                  )}
-
-                  {/* Actions */}
-                  <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-                    <button
-                      onClick={() => openEdit(task)}
-                      aria-label="编辑"
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', padding: '3px' }}
-                    >
-                      <Edit2 size={13} />
-                    </button>
-                    <button
-                      onClick={() => { setRewriteTask(task); setRewriteResult(null) }}
-                      aria-label="AI 改写"
-                      title="AI 改写"
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', padding: '3px' }}
-                    >
-                      <Sparkles size={13} />
-                    </button>
-                    <button
-                      onClick={() => deleteTask(task.id)}
-                      aria-label="删除"
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', padding: '3px' }}
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Subtasks (if group and not collapsed) */}
-                {isGroup && !isCollapsed && task.subtasks && task.subtasks.map((sub) => (
-                  <div
-                    key={sub.id}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '10px',
-                      padding: '8px 4px 8px 44px',
-                      borderBottom: '1px solid var(--border)',
-                      borderLeft: '2px solid var(--border)',
-                      marginLeft: '24px',
-                    }}
-                  >
-                    <button
-                      onClick={() => toggleTask(sub.id)}
-                      aria-label={sub.completed ? '标记未完成' : '标记完成'}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: sub.completed ? 'var(--success)' : 'var(--border-strong)', display: 'flex', flexShrink: 0 }}
-                    >
-                      {sub.completed ? <CheckSquare size={14} /> : <Square size={14} />}
-                    </button>
-                    <span style={{
-                      fontFamily: 'var(--font-mono)', fontSize: 'var(--text-2xs)',
-                      color: 'var(--text-muted)', minWidth: '16px',
-                    }}>
-                      {sub.sort_order}.
-                    </span>
-                    <span style={{
-                      fontSize: 'var(--text-sm)', flex: 1,
-                      color: sub.completed ? 'var(--text-muted)' : 'var(--text-primary)',
-                      textDecoration: sub.completed ? 'line-through' : 'none',
-                    }}>
-                      {sub.title}
-                    </span>
-                    <StarRating value={sub.star_rating} readonly size="sm" />
-                  </div>
-                ))}
-              </div>
-            )
-          })}
+          {displayTasks.map((task) => renderTaskRow(task))}
         </div>
       )}
 
-      {/* Pagination */}
-      {totalPages > 1 && (
+      {/* Pagination (not applicable to semantic results) */}
+      {!semanticActive && totalPages > 1 && (
         <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', marginTop: '24px' }}>
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
@@ -674,8 +781,8 @@ export function TasksSection() {
         )}
       </Modal>
 
-      {/* Rewrite modal */}
-      <Modal open={!!rewriteTask} onClose={() => { setRewriteTask(null); setRewriteResult(null) }} title="AI 改写标题">
+      {/* Rewrite / decompose (magic) modal */}
+      <Modal open={!!rewriteTask} onClose={() => { setRewriteTask(null); setRewriteResult(null) }} title="AI 助手">
         {rewriteTask && (
           <div>
             <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: '16px' }}>
@@ -691,22 +798,37 @@ export function TasksSection() {
                 </p>
               </div>
             ) : (
-              <button
-                onClick={handleRewrite}
-                disabled={rewriteLoading}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '5px',
-                  background: 'var(--accent)', border: '1px solid var(--accent)',
-                  borderRadius: 'var(--radius-pill)', padding: '7px 16px',
-                  fontSize: 'var(--text-sm)', color: 'var(--on-accent)',
-                  cursor: rewriteLoading ? 'not-allowed' : 'pointer',
-                  opacity: rewriteLoading ? 0.7 : 1, fontFamily: 'var(--font-sans)',
-                  marginBottom: '16px',
-                }}
-              >
-                {rewriteLoading ? <Spinner size={12} /> : <Sparkles size={12} aria-hidden />}
-                {rewriteLoading ? '正在改写…' : '生成改写建议'}
-              </button>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
+                <button
+                  onClick={handleRewrite}
+                  disabled={rewriteLoading}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '5px',
+                    background: 'var(--accent)', border: '1px solid var(--accent)',
+                    borderRadius: 'var(--radius-pill)', padding: '7px 16px',
+                    fontSize: 'var(--text-sm)', color: 'var(--on-accent)',
+                    cursor: rewriteLoading ? 'not-allowed' : 'pointer',
+                    opacity: rewriteLoading ? 0.7 : 1, fontFamily: 'var(--font-sans)',
+                  }}
+                >
+                  {rewriteLoading ? <Spinner size={12} /> : <Sparkles size={12} aria-hidden />}
+                  {rewriteLoading ? '正在改写…' : '改写建议'}
+                </button>
+                <button
+                  onClick={() => { const t = rewriteTask; setRewriteTask(null); setRewriteResult(null); setDecomposeTask(t); setDecomposeResult(null) }}
+                  disabled={rewriteLoading}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '5px',
+                    background: 'none', border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-pill)', padding: '7px 16px',
+                    fontSize: 'var(--text-sm)', color: 'var(--accent)',
+                    cursor: rewriteLoading ? 'not-allowed' : 'pointer',
+                    opacity: rewriteLoading ? 0.7 : 1, fontFamily: 'var(--font-sans)',
+                  }}
+                >
+                  <Sparkles size={12} aria-hidden /> 拆解为子任务
+                </button>
+              </div>
             )}
             <ModalFooter>
               <button onClick={() => { setRewriteTask(null); setRewriteResult(null) }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-pill)', padding: '6px 14px', fontSize: 'var(--text-sm)', color: 'var(--text-muted)', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>关闭</button>

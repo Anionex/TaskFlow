@@ -15,8 +15,9 @@ export const aiApi = {
   decompose: (title: string, description: string) =>
     api.postAi<DecomposeResult>('/ai/decompose', { title, description }),
 
-  search: (query: string) =>
-    api.postAi<SearchResult>('/ai/search', { query }),
+  // 把任务页当前筛选选择器（状态 + 分类）一并作为检索上下文传给后端。
+  search: (query: string, filters?: { status?: string; category?: string }) =>
+    api.postAi<SearchResult>('/ai/search', { query, ...filters }),
 
   morning: () => api.getAi<MorningResult>('/ai/morning'),
 

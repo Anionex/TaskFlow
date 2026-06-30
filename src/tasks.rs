@@ -16,6 +16,7 @@ use crate::state::SharedState;
 
 #[derive(Deserialize)]
 pub struct TaskListQuery {
+    pub status: Option<String>,
     pub sort_by: Option<String>,
     pub category: Option<String>,
     pub search: Option<String>,
@@ -102,6 +103,24 @@ pub fn is_valid_category(category: &str) -> bool {
     ["学习", "工作", "生活", "家庭", "其他"].contains(&category)
 }
 
+/// 任务状态过滤的 SQL 片段（以 " AND ..." 开头，可直接拼到 WHERE 之后）。
+/// `prefix` 是列前缀，如 "t." 或 ""（按 FROM 是否带别名）。
+/// status 取值仅服务端枚举，安全可内联：completed / expired / pending。
+/// 其它值（含空）不按状态过滤。
+pub fn status_filter_sql(status: Option<&str>, prefix: &str) -> String {
+    let p = prefix;
+    match status {
+        Some("completed") => format!(" AND {p}completed = true"),
+        Some("expired") => {
+            format!(" AND {p}completed = false AND {p}deadline IS NOT NULL AND {p}deadline < now()")
+        }
+        Some("pending") => {
+            format!(" AND {p}completed = false AND ({p}deadline IS NULL OR {p}deadline >= now())")
+        }
+        _ => String::new(),
+    }
+}
+
 pub fn clamp_star_rating(star: i16) -> i16 {
     star.clamp(0, 5)
 }
@@ -184,6 +203,9 @@ pub async fn list_tasks(
         _ => "t.created_at DESC",
     };
 
+    // 状态过滤（待办/已完成/已过期）。仅对顶层任务生效。
+    let status_clause = status_filter_sql(q.status.as_deref(), "t.");
+
     // Build SQL with optional WHERE clauses
     // We use $1=uid, $2=category_or_empty, $3=search_or_empty
     let sql_count = format!(
@@ -193,7 +215,7 @@ pub async fn list_tasks(
            AND ($2 = '' OR t.category = $2) \
            AND ($3 = '' OR (t.title ILIKE $4 OR t.description ILIKE $4)) \
            AND ($5::uuid IS NULL OR t.parent_id = $5) \
-           AND ($5::uuid IS NOT NULL OR t.parent_id IS NULL)"
+           AND ($5::uuid IS NOT NULL OR t.parent_id IS NULL){status_clause}"
     );
 
     let sql_data = format!(
@@ -203,7 +225,7 @@ pub async fn list_tasks(
            AND ($2 = '' OR t.category = $2) \
            AND ($3 = '' OR (t.title ILIKE $4 OR t.description ILIKE $4)) \
            AND ($5::uuid IS NULL OR t.parent_id = $5) \
-           AND ($5::uuid IS NOT NULL OR t.parent_id IS NULL) \
+           AND ($5::uuid IS NOT NULL OR t.parent_id IS NULL){status_clause} \
          ORDER BY {order_clause} \
          LIMIT $6 OFFSET $7"
     );

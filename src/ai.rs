@@ -197,6 +197,10 @@ pub struct DecomposeReq {
 #[derive(Deserialize)]
 pub struct SearchReq {
     pub query: String,
+    /// 任务页当前的筛选选择器（待办/已完成/已过期、分类）一并作为检索上下文，
+    /// 用于把候选任务限定在用户当前关注的范围内。
+    pub status: Option<String>,
+    pub category: Option<String>,
 }
 
 // ── 3.10.1 自然语言解析 ────────────────────────────────────────────────────
@@ -422,17 +426,24 @@ pub async fn semantic_search(
         Err(e) => return e,
     };
 
-    // Load all non-deleted tasks for this user
-    let tasks: Vec<Task> = sqlx::query_as(
-        "SELECT * FROM tasks WHERE user_id=$1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 200",
-    )
-    .bind(uid)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
+    // 候选任务范围 = 用户当前筛选选择器（状态 + 分类）。把这些选择作为检索上下文，
+    // 让"和学习有关的重要任务"这类查询只在所选状态/分类内匹配。
+    let status_clause = crate::tasks::status_filter_sql(body.status.as_deref(), "");
+    let category = body.category.clone().unwrap_or_default();
+    let sql = format!(
+        "SELECT * FROM tasks WHERE user_id=$1 AND deleted_at IS NULL \
+         AND ($2 = '' OR category = $2){status_clause} \
+         ORDER BY created_at DESC LIMIT 200"
+    );
+    let tasks: Vec<Task> = sqlx::query_as(&sql)
+        .bind(uid)
+        .bind(&category)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default();
 
     if tasks.is_empty() {
-        return (StatusCode::OK, ok("检索完成", json!({"items": [], "explanation": "暂无任务"})));
+        return (StatusCode::OK, ok("检索完成", json!({"items": [], "explanation": "当前筛选范围内暂无任务"})));
     }
 
     let cfg = get_llm_config(&headers, &state, uid).await;
@@ -458,9 +469,20 @@ pub async fn semantic_search(
     )
     .unwrap_or_default();
 
+    let scope = {
+        let st = match body.status.as_deref() {
+            Some("completed") => "已完成",
+            Some("expired") => "已过期",
+            Some("pending") => "待办",
+            _ => "全部状态",
+        };
+        let cat = if category.is_empty() { "全部分类".to_string() } else { category.clone() };
+        format!("{st} / {cat}")
+    };
+
     let system = format!(
         r#"你是任务检索助手。当前时间：{}。
-以下是用户的任务列表（JSON），请根据查询语义筛选出最相关的任务，按相关性和紧迫度排序，输出严格JSON：
+用户已在任务页选择了筛选范围：{}。下面的任务列表已按该范围预筛选，请只在其中按查询语义筛选最相关的任务，按相关性和紧迫度排序，输出严格JSON：
 {{
   "items": [
     {{"id": "uuid", "title": "...", "reason": "匹配原因"}},
@@ -470,7 +492,7 @@ pub async fn semantic_search(
 }}
 任务列表：
 {}"#,
-        today, tasks_json
+        today, scope, tasks_json
     );
 
     match call_llm(&cfg, &system, &body.query).await {
