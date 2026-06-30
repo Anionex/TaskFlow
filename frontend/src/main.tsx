@@ -10,6 +10,7 @@ import { PrivacyPage } from './pages/PrivacyPage'
 import { DownloadPage } from './pages/DownloadPage'
 import { AppPage } from './pages/AppPage'
 import { ToastContainer } from './components/ui/Toast'
+import { isTauri } from '@/lib/isTauri'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { sessionId } = useAppStore()
@@ -17,11 +18,18 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+// In the Tauri desktop shell, the root route opens straight on the login page.
+// The web build keeps showing the marketing landing page at "/".
+function RootRoute() {
+  if (isTauri()) return <Navigate to="/login" replace />
+  return <LandingPage />
+}
+
 function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<LandingPage />} />
+        <Route path="/" element={<RootRoute />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/privacy" element={<PrivacyPage />} />
