@@ -32,6 +32,8 @@ export function AgentSection() {
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
+  // 同步的在途标记：busy 是异步 state，单靠它无法挡住同一帧内的两次触发（双击/回车+点击）。
+  const inFlightRef = useRef(false)
 
   // 新内容到达时滚到底部
   useEffect(() => {
@@ -58,6 +60,7 @@ export function AgentSection() {
     setPending(turn.pending ?? null)
   }, [])
 
+  // 调用方负责同步置位 inFlightRef 后再进入；这里只在结束时复位。
   const runChat = useCallback(
     async (payload: Parameters<typeof agentApi.chat>[0]) => {
       setBusy(true)
@@ -71,6 +74,7 @@ export function AgentSection() {
       } catch {
         addToast({ type: 'error', message: '网络错误，请稍后再试' })
       } finally {
+        inFlightRef.current = false
         setBusy(false)
       }
     },
@@ -79,19 +83,22 @@ export function AgentSection() {
 
   function send(text: string) {
     const t = text.trim()
-    if (!t || busy || pending) return
+    if (!t || pending || inFlightRef.current) return
+    inFlightRef.current = true
     setTranscript((prev) => [...prev, { type: 'user', text: t }])
     setInput('')
     void runChat({ messages, user_input: t })
   }
 
   function accept() {
-    if (!pending || busy) return
+    if (!pending || inFlightRef.current) return
+    inFlightRef.current = true
     void runChat({ messages, decision: { tool_call_id: pending.tool_call_id, approved: true } })
   }
 
   function reject() {
-    if (!pending || busy) return
+    if (!pending || inFlightRef.current) return
+    inFlightRef.current = true
     void runChat({ messages, decision: { tool_call_id: pending.tool_call_id, approved: false } })
   }
 
@@ -211,7 +218,8 @@ export function AgentSection() {
               onChange={(e) => setInput(e.target.value)}
               disabled={busy || !!pending}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                // 中文等输入法合成期间的回车用于上屏候选词，不应触发发送。
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault()
                   send(input)
                 }

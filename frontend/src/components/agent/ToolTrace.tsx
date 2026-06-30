@@ -19,7 +19,8 @@ function stepLine(s: AgentStep): string {
   const label = TOOL_LABEL[s.name ?? ''] ?? s.name ?? '工具'
   if (!s.ok) return `${label} · 失败`
   if (s.name === 'list_tasks') {
-    const count = (s.result as { count?: number } | undefined)?.count
+    const r = s.result
+    const count = r && typeof r === 'object' ? (r as { count?: unknown }).count : undefined
     return typeof count === 'number' ? `${label} · ${count} 条` : label
   }
   return label

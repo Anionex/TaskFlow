@@ -26,9 +26,16 @@ const FIELD_LABEL: Record<string, string> = {
 function fmt(v: unknown): string {
   if (v === null || v === undefined || v === '') return '（空）'
   if (typeof v === 'boolean') return v ? '是' : '否'
-  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) {
-    const d = new Date(v)
-    if (!isNaN(d.getTime())) return d.toLocaleString('zh-CN', { dateStyle: 'medium', timeStyle: 'short' })
+  // 任何形如日期的字符串都本地化展示（含纯日期 / "日期 时:分" / 带时区），
+  // 避免一侧本地化、另一侧显示原始 ISO 造成 当前→拟改 对照不一致。
+  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2})?/.test(v)) {
+    const d = new Date(v.includes('T') || v.includes(' ') ? v : `${v}T00:00:00`)
+    if (!isNaN(d.getTime())) {
+      const hasTime = /\d{2}:\d{2}/.test(v)
+      return d.toLocaleString('zh-CN', hasTime
+        ? { dateStyle: 'medium', timeStyle: 'short' }
+        : { dateStyle: 'medium' })
+    }
   }
   return String(v)
 }
@@ -98,6 +105,12 @@ export function PendingActionCard({ pending, busy, onAccept, onReject }: Props) 
             )
           })}
         </div>
+      )}
+
+      {action === 'update' && !current && (
+        <p style={{ fontSize: 'var(--text-xs)', color: 'var(--warning)', margin: '0 0 12px' }}>
+          注：未能读取该任务的当前值（可能已删除），下面只显示拟设置的内容。
+        </p>
       )}
 
       {action === 'delete' && current && (
