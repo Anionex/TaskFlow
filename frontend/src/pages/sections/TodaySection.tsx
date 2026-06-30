@@ -13,10 +13,18 @@ import { checkinApi } from '@/api/checkin'
 import { useAppStore } from '@/store'
 import type { ParsedTask, MorningResult, EveningResult, UserStats, CheckinStatus } from '@/types'
 
+type DraftItem = ParsedTask & { _key: string }
+
+let draftKeySeq = 0
+const nextDraftKey = () => `draft-${Date.now()}-${draftKeySeq++}`
+
 export function TodaySection() {
   const { addToast } = useAppStore()
   const [parseLoading, setParseLoading] = useState(false)
-  const [drafts, setDrafts] = useState<ParsedTask[]>([])
+  // Each draft carries a stable client-side key so React keeps each
+  // AiDraftCard's internal edit-state bound to the correct draft even
+  // as items above it are confirmed/discarded.
+  const [drafts, setDrafts] = useState<DraftItem[]>([])
 
   const [morningLoading, setMorningLoading] = useState(false)
   const [morningData, setMorningData] = useState<MorningResult | null>(null)
@@ -53,7 +61,7 @@ export function TodaySection() {
     try {
       const res = await aiApi.parse(text)
       if (res.success && res.data && res.data.items.length > 0) {
-        setDrafts(res.data.items)
+        setDrafts(res.data.items.map((item) => ({ ...item, _key: nextDraftKey() })))
       } else if (res.success) {
         addToast({ type: 'error', message: '没解析出任务，请手动填写' })
         setShowCreate(true)
@@ -69,7 +77,7 @@ export function TodaySection() {
     }
   }
 
-  async function confirmDraft(draft: ParsedTask, idx: number) {
+  async function confirmDraft(draft: DraftItem) {
     const res = await tasksApi.create({
       title: draft.title,
       description: draft.description,
@@ -80,7 +88,7 @@ export function TodaySection() {
     })
     if (res.success) {
       addToast({ type: 'success', message: '任务已创建' })
-      setDrafts((d) => d.filter((_, i) => i !== idx))
+      setDrafts((d) => d.filter((item) => item._key !== draft._key))
       loadStats()
     } else {
       addToast({ type: 'error', message: res.message })
@@ -170,7 +178,7 @@ export function TodaySection() {
 
       {/* Overview numbers */}
       {stats && (
-        <div style={{ display: 'flex', gap: '24px', marginBottom: '32px', paddingBottom: '24px', borderBottom: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px', rowGap: '16px', marginBottom: '32px', paddingBottom: '24px', borderBottom: '1px solid var(--border)' }}>
           {[
             { label: '待完成', value: stats.pending, color: 'var(--text-primary)' },
             { label: '已完成', value: stats.completed, color: 'var(--success)' },
@@ -232,12 +240,12 @@ export function TodaySection() {
               </p>
             )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {drafts.map((d, i) => (
+              {drafts.map((d) => (
                 <AiDraftCard
-                  key={i}
+                  key={d._key}
                   draft={d}
-                  onConfirm={(draft) => confirmDraft(draft, i)}
-                  onDiscard={() => setDrafts((arr) => arr.filter((_, j) => j !== i))}
+                  onConfirm={(draft) => confirmDraft({ ...draft, _key: d._key })}
+                  onDiscard={() => setDrafts((arr) => arr.filter((item) => item._key !== d._key))}
                 />
               ))}
             </div>
