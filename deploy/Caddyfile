@@ -1,0 +1,29 @@
+# TaskFlow 生产反代 + 自动 HTTPS（Let's Encrypt 自动签发/续期）
+# 主域名 taskflowai.asia，sslip.io 保留作备用，www 跳转到主域名。
+
+# 共用的反代逻辑（API → 后端，其余 → 前端 SPA）
+(taskflow_app) {
+	encode gzip
+
+	# API 反代到本机后端
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8080
+	}
+
+	# 其余走前端静态资源（SPA：找不到文件回退到 index.html）
+	handle {
+		root * /var/www/taskflow
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# 主域名 + sslip.io 备用域名，共用同一套反代逻辑
+taskflowai.asia, 154.36.158.18.sslip.io {
+	import taskflow_app
+}
+
+# www 规范化：301 永久跳转到主域名
+www.taskflowai.asia {
+	redir https://taskflowai.asia{uri} permanent
+}

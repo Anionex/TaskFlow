@@ -1,0 +1,15 @@
+[Unit]
+Description=TaskFlow backend (Rust/Axum)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/taskflow
+EnvironmentFile=/opt/taskflow/.env
+ExecStart=/opt/taskflow/taskflow
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target

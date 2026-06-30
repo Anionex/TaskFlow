@@ -38,10 +38,28 @@ PORT=8081 cargo run --bin task_manager
 .
 ├── Cargo.toml
 ├── Cargo.lock
+├── README.md
 ├── src/
+│   ├── main.rs
+│   ├── server.rs
+│   └── lib.rs
 ├── static/
+│   ├── index.html
+│   ├── style.css
+│   └── app.js
 └── docs/
     └── 总结文档.md
 ```
 
 Runtime user data is stored in `users.json` and `data/`, and is intentionally excluded from git.
+
+### Key Files
+
+- `Cargo.toml`: Rust package configuration, dependencies, and binary/library targets.
+- `src/main.rs`: Desktop-style entry point. It starts the server and opens the browser.
+- `src/server.rs`: Main backend implementation with Axum routes, user sessions, task APIs, recycle bin, recurring templates, check-in, stats, and import/export.
+- `src/lib.rs`: Library entry point exposing `run_server()`.
+- `static/index.html`: Single-page frontend markup.
+- `static/style.css`: Frontend styles and themes.
+- `static/app.js`: Frontend interaction logic and API calls.
+- `docs/总结文档.md`: Project summary document, including requirements, design, API notes, testing, and team work.

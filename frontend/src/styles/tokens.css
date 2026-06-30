@@ -1,0 +1,163 @@
+/* ============================================================================
+ * TaskFlow — Design Tokens
+ * ----------------------------------------------------------------------------
+ * Source of truth: framework-agnostic CSS custom properties. Tailwind v4 maps
+ * onto these via `@theme inline` in app.css. Three runtime themes swap via
+ * [data-theme]. Approved direction A "案上 / The Quiet Workbench".
+ * See docs/design-system.md. Supersedes the legacy theme.css.
+ * ==========================================================================*/
+
+/* ---- Mode-invariant tokens (same in all three themes) -------------------- */
+:root {
+  /* Type families — Google Fonts, CJK-aware (loaded in index.html) */
+  --font-sans:  "Hanken Grotesk", "Noto Sans SC", system-ui, -apple-system, sans-serif;
+  --font-voice: "Source Serif 4", "Noto Serif SC", Georgia, serif; /* the AI's voice */
+  --font-mono:  "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+
+  /* Type scale (rem @ 16px base). Floor = 11px. */
+  --text-2xs: 0.6875rem;  /* 11px — order markers, micro-labels */
+  --text-xs:  0.75rem;    /* 12px — captions, tag text */
+  --text-sm:  0.8125rem;  /* 13px — secondary UI text, buttons */
+  --text-base:0.9375rem;  /* 15px — body / task titles */
+  --text-md:  1rem;       /* 16px */
+  --text-lg:  1.125rem;   /* 18px — section voice */
+  --text-xl:  1.375rem;   /* 22px — page heading */
+  --text-2xl: 1.75rem;    /* 28px */
+  --text-3xl: 2.25rem;    /* 36px — hero / empty-state voice */
+
+  /* Weights — two only (no 600/700) */
+  --fw-regular: 400;
+  --fw-medium:  500;
+
+  /* Line heights */
+  --lh-tight:  1.25;
+  --lh-snug:   1.45;
+  --lh-normal: 1.65;
+
+  /* Spacing scale (4px base) */
+  --space-1: 0.25rem;  --space-2: 0.5rem;  --space-3: 0.75rem;
+  --space-4: 1rem;     --space-5: 1.25rem; --space-6: 1.5rem;
+  --space-8: 2rem;     --space-10: 2.5rem; --space-12: 3rem; --space-16: 4rem;
+
+  /* Radius — modest; structure comes from hairlines. Buttons use --radius-pill. */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;   /* shadcn --radius base */
+  --radius-lg: 10px;  /* cards */
+  --radius-pill: 999px;
+
+  /* Borders — hairlines do the dividing work */
+  --border-width: 1px;
+
+  /* Motion — minimal; GSAP for sequences, CSS for state */
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+  --ease-out:    cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* Elevation — one floating shadow only (popover/dialog). Cards use borders. */
+  --shadow-pop: 0 8px 28px rgba(20, 20, 15, 0.12), 0 2px 6px rgba(20, 20, 15, 0.06);
+
+  --z-base: 0; --z-sticky: 50; --z-popover: 100; --z-modal: 200; --z-toast: 300;
+}
+
+/* ---- Theme: 普通 (light) — default ------------------------------------- */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  --surface-0: #FCFCFB;            /* page canvas — paper, NOT cream cliché */
+  --surface-1: #FFFFFF;            /* in-flow card */
+  --surface-2: #FFFFFF;            /* popover/dialog (lifted by shadow+border) */
+
+  --text-primary:   #1B1B19;
+  --text-secondary: #565651;
+  --text-muted:     #8A8A83;
+
+  --border:        rgba(24, 24, 16, 0.10);
+  --border-strong: rgba(24, 24, 16, 0.16);
+
+  --accent:        #4742B8;        /* ink indigo — the one bold color */
+  --accent-hover:  #3A35A0;
+  --on-accent:     #FFFFFF;
+  --accent-soft:   rgba(71, 66, 184, 0.12); /* focus tint / active nav only */
+  --ring:          rgba(71, 66, 184, 0.40);
+
+  --danger:  #A8331F;
+  --success: #2F6B45;
+  --warning: #8A5A12;
+}
+
+/* ---- Theme: 护眼 (sepia) — low blue light ------------------------------ */
+[data-theme="sepia"] {
+  color-scheme: light;
+
+  --surface-0: #F1EADB;
+  --surface-1: #F7F1E6;
+  --surface-2: #FBF6EC;
+
+  --text-primary:   #2E2A21;
+  --text-secondary: #5E5648;
+  --text-muted:     #8C8270;
+
+  --border:        rgba(70, 56, 30, 0.16);
+  --border-strong: rgba(70, 56, 30, 0.24);
+
+  --accent:        #8A5A2A;        /* umber — shifts accent off blue to cut blue light */
+  --accent-hover:  #74491F;
+  --on-accent:     #FBF6EC;
+  --accent-soft:   rgba(138, 90, 42, 0.14);
+  --ring:          rgba(138, 90, 42, 0.40);
+
+  --danger:  #9A3520;
+  --success: #4A6A2E;
+  --warning: #8A5A12;
+}
+
+/* ---- Theme: 夜间 (dark) ------------------------------------------------- */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --surface-0: #161619;
+  --surface-1: #1D1D21;
+  --surface-2: #26262C;
+
+  --text-primary:   #EAEAE5;
+  --text-secondary: #A6A6A0;
+  --text-muted:     #6E6E68;
+
+  --border:        rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(255, 255, 255, 0.20);
+
+  --accent:        #8E89EC;        /* lifted indigo for contrast on dark */
+  --accent-hover:  #A29EF1;
+  --on-accent:     #161619;
+  --accent-soft:   rgba(142, 137, 236, 0.18);
+  --ring:          rgba(142, 137, 236, 0.45);
+
+  --danger:  #E08A72;
+  --success: #6FB389;
+  --warning: #D8A95A;
+
+  --shadow-pop: 0 8px 28px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.30);
+}
+
+/* Respect OS dark preference when no explicit theme is set */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --surface-0: #161619; --surface-1: #1D1D21; --surface-2: #26262C;
+    --text-primary: #EAEAE5; --text-secondary: #A6A6A0; --text-muted: #6E6E68;
+    --border: rgba(255,255,255,0.12); --border-strong: rgba(255,255,255,0.20);
+    --accent: #8E89EC; --accent-hover: #A29EF1; --on-accent: #161619;
+    --accent-soft: rgba(142,137,236,0.18); --ring: rgba(142,137,236,0.45);
+    --danger: #E08A72; --success: #6FB389; --warning: #D8A95A;
+    --shadow-pop: 0 8px 28px rgba(0,0,0,0.45), 0 2px 6px rgba(0,0,0,0.30);
+  }
+}
+
+/* Accessibility: honor reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-fast: 0ms; --dur-base: 0ms; --dur-slow: 0ms; }
+}

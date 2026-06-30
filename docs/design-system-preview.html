@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TaskFlow Design System — Preview (DRAFT)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500&family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500&family=Noto+Serif+SC:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+ * DESIGN TOKENS — copied from frontend/src/styles/tokens.draft.css
+ * Read-only preview. Direction A "案上 / The Quiet Workbench".
+ * ==========================================================*/
+:root{
+  --font-sans:"Hanken Grotesk","Noto Sans SC",system-ui,-apple-system,sans-serif;
+  --font-voice:"Source Serif 4","Noto Serif SC",Georgia,serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,"SF Mono",monospace;
+  --text-2xs:.6875rem;--text-xs:.75rem;--text-sm:.8125rem;--text-base:.9375rem;
+  --text-md:1rem;--text-lg:1.125rem;--text-xl:1.375rem;--text-2xl:1.75rem;--text-3xl:2.25rem;
+  --fw-regular:400;--fw-medium:500;--lh-tight:1.25;--lh-snug:1.45;--lh-normal:1.65;
+  --space-1:.25rem;--space-2:.5rem;--space-3:.75rem;--space-4:1rem;--space-5:1.25rem;
+  --space-6:1.5rem;--space-8:2rem;--space-10:2.5rem;--space-12:3rem;--space-16:4rem;
+  --radius-xs:4px;--radius-sm:6px;--radius-md:8px;--radius-lg:10px;--radius-pill:999px;
+  --border-width:1px;
+  --dur-fast:120ms;--dur-base:200ms;--dur-slow:320ms;
+  --ease-out:cubic-bezier(.22,1,.36,1);--ease-in-out:cubic-bezier(.65,0,.35,1);
+  --shadow-pop:0 8px 28px rgba(20,20,15,.12),0 2px 6px rgba(20,20,15,.06);
+}
+:root,[data-theme="light"]{
+  color-scheme:light;
+  --surface-0:#FCFCFB;--surface-1:#FFFFFF;--surface-2:#FFFFFF;
+  --text-primary:#1B1B19;--text-secondary:#565651;--text-muted:#8A8A83;
+  --border:rgba(24,24,16,.10);--border-strong:rgba(24,24,16,.16);
+  --accent:#4742B8;--accent-hover:#3A35A0;--on-accent:#FFFFFF;
+  --accent-soft:rgba(71,66,184,.12);--ring:rgba(71,66,184,.40);
+  --danger:#A8331F;--success:#2F6B45;--warning:#8A5A12;
+}
+[data-theme="sepia"]{
+  color-scheme:light;
+  --surface-0:#F1EADB;--surface-1:#F7F1E6;--surface-2:#FBF6EC;
+  --text-primary:#2E2A21;--text-secondary:#5E5648;--text-muted:#8C8270;
+  --border:rgba(70,56,30,.16);--border-strong:rgba(70,56,30,.24);
+  --accent:#8A5A2A;--accent-hover:#74491F;--on-accent:#FBF6EC;
+  --accent-soft:rgba(138,90,42,.14);--ring:rgba(138,90,42,.40);
+  --danger:#9A3520;--success:#4A6A2E;--warning:#8A5A12;
+}
+[data-theme="dark"]{
+  color-scheme:dark;
+  --surface-0:#161619;--surface-1:#1D1D21;--surface-2:#26262C;
+  --text-primary:#EAEAE5;--text-secondary:#A6A6A0;--text-muted:#6E6E68;
+  --border:rgba(255,255,255,.12);--border-strong:rgba(255,255,255,.20);
+  --accent:#8E89EC;--accent-hover:#A29EF1;--on-accent:#161619;
+  --accent-soft:rgba(142,137,236,.18);--ring:rgba(142,137,236,.45);
+  --danger:#E08A72;--success:#6FB389;--warning:#D8A95A;
+  --shadow-pop:0 8px 28px rgba(0,0,0,.45),0 2px 6px rgba(0,0,0,.30);
+}
+@media (prefers-reduced-motion:reduce){:root{--dur-fast:0ms;--dur-base:0ms;--dur-slow:0ms;}}
+
+/* ============================================================
+ * PREVIEW SCAFFOLD + COMPONENT STYLES (taste-doc compliant)
+ * ==========================================================*/
+*{box-sizing:border-box;}
+/* icons — lucide glyphs, inline, monochrome, currentColor; never boxed (taste doc) */
+.ic{width:16px;height:16px;flex:none;vertical-align:-3px;stroke:currentColor;fill:none;
+  stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round;}
+.ic--sm{width:13px;height:13px;vertical-align:-2px;}
+.iconbtn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;
+  border:0;background:transparent;color:var(--text-secondary);border-radius:var(--radius-pill);
+  cursor:pointer;transition:color var(--dur-fast) var(--ease-out),background var(--dur-fast) var(--ease-out);}
+.iconbtn:hover{color:var(--text-primary);background:var(--surface-1);}
+.iconbtn[aria-pressed="true"]{color:var(--accent);background:var(--accent-soft);}
+.btn .ic{margin-right:6px;}
+body{
+  margin:0;background:var(--surface-0);color:var(--text-primary);
+  font-family:var(--font-sans);font-size:var(--text-base);
+  font-weight:var(--fw-regular);line-height:var(--lh-normal);
+  -webkit-font-smoothing:antialiased;transition:background var(--dur-base) var(--ease-out);
+}
+.wrap{max-width:920px;margin:0 auto;padding:var(--space-8) var(--space-6) var(--space-16);}
+
+/* preview chrome */
+.topbar{
+  position:sticky;top:0;z-index:100;background:var(--surface-0);
+  border-bottom:var(--border-width) solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:var(--space-3) var(--space-6);
+}
+.brand{display:flex;align-items:baseline;gap:var(--space-3);}
+.brand b{font-weight:var(--fw-medium);font-size:var(--text-md);}
+.brand .draft{font-size:var(--text-xs);color:var(--text-muted);
+  border:var(--border-width) solid var(--border);border-radius:var(--radius-pill);
+  padding:2px 10px;}
+.seg{display:flex;gap:2px;border:var(--border-width) solid var(--border);
+  border-radius:var(--radius-pill);padding:3px;background:var(--surface-1);}
+.seg button{
+  font:inherit;font-size:var(--text-sm);color:var(--text-secondary);
+  background:transparent;border:0;border-radius:var(--radius-sm);
+  padding:6px 14px;cursor:pointer;transition:color var(--dur-fast) var(--ease-out);
+}
+.seg button[aria-pressed="true"]{color:var(--accent);background:var(--accent-soft);font-weight:var(--fw-medium);}
+
+section{margin-top:var(--space-12);}
+.sec-label{font-size:var(--text-sm);color:var(--text-muted);
+  letter-spacing:.04em;margin:0 0 var(--space-4);
+  padding-bottom:var(--space-2);border-bottom:var(--border-width) solid var(--border);}
+.row{display:flex;flex-wrap:wrap;gap:var(--space-4);align-items:center;}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:var(--space-5);}
+@media (max-width:680px){.grid2{grid-template-columns:1fr;}}
+
+/* typography scale */
+.t-3xl{font-size:var(--text-3xl);line-height:var(--lh-tight);font-weight:var(--fw-medium);}
+.t-2xl{font-size:var(--text-2xl);line-height:var(--lh-tight);font-weight:var(--fw-medium);}
+.t-xl{font-size:var(--text-xl);line-height:var(--lh-snug);font-weight:var(--fw-medium);}
+.t-lg{font-size:var(--text-lg);line-height:var(--lh-snug);}
+.t-base{font-size:var(--text-base);}
+.t-sm{font-size:var(--text-sm);color:var(--text-secondary);}
+.t-xs{font-size:var(--text-xs);color:var(--text-muted);}
+.type-spec{color:var(--text-muted);font-family:var(--font-mono);font-size:var(--text-xs);margin-left:var(--space-3);}
+
+/* buttons — light, thin, document-tool feel · NO hover float (taste doc) */
+.btn{font:inherit;font-size:var(--text-sm);font-weight:var(--fw-medium);line-height:1.4;
+  border-radius:var(--radius-pill);padding:6px 15px;cursor:pointer;
+  border:var(--border-width) solid var(--border);background:transparent;
+  color:var(--text-secondary);
+  transition:background var(--dur-fast) var(--ease-out),border-color var(--dur-fast) var(--ease-out),color var(--dur-fast) var(--ease-out);}
+.btn:hover{background:var(--surface-1);border-color:var(--border-strong);color:var(--text-primary);}
+/* primary — locked: compact solid capsule (the one bold spend) */
+.btn--primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);}
+.btn--primary:hover{background:var(--accent-hover);border-color:var(--accent-hover);color:var(--on-accent);}
+.btn--ghost{border-color:transparent;color:var(--text-secondary);}
+.btn--ghost:hover{background:var(--surface-1);color:var(--text-primary);}
+.btn:focus-visible{outline:none;box-shadow:0 0 0 3px var(--ring);}
+.btn[disabled]{opacity:.55;cursor:not-allowed;}
+
+/* fields */
+.field{display:block;width:100%;font:inherit;font-size:var(--text-base);
+  color:var(--text-primary);background:var(--surface-1);
+  border:var(--border-width) solid var(--border-strong);border-radius:var(--radius-md);
+  padding:9px 12px;transition:border-color var(--dur-fast) var(--ease-out),box-shadow var(--dur-fast) var(--ease-out);}
+.field::placeholder{color:var(--text-muted);}
+.field:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--ring);}
+.label{display:block;font-size:var(--text-sm);color:var(--text-secondary);margin:0 0 var(--space-2);}
+
+/* card — flat, hairline only */
+.card{background:var(--surface-1);border:var(--border-width) solid var(--border);
+  border-radius:var(--radius-lg);padding:var(--space-5) var(--space-5);}
+
+/* category label — text + hairline, never a fill */
+.tag{display:inline-block;font-size:var(--text-xs);color:var(--text-secondary);
+  border:var(--border-width) solid var(--border);border-radius:var(--radius-pill);padding:2px 9px;}
+
+/* stars */
+.stars{display:inline-flex;gap:2px;font-size:var(--text-sm);line-height:1;}
+.stars i{font-style:normal;color:var(--text-muted);}
+.stars i.on{color:var(--accent);}
+
+/* meta */
+.meta{font-size:var(--text-xs);color:var(--text-muted);}
+.meta.due-over{color:var(--danger);}
+
+/* task row */
+.task{display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) 0;}
+.task + .task{border-top:var(--border-width) solid var(--border);}
+.check{width:17px;height:17px;flex:none;border-radius:var(--radius-xs);
+  border:1.5px solid var(--border-strong);display:inline-flex;align-items:center;
+  justify-content:center;font-size:11px;color:var(--on-accent);}
+.check.done{background:var(--accent);border-color:var(--accent);}
+.task-title{font-size:var(--text-base);}
+.task.done .task-title{color:var(--text-muted);text-decoration:line-through;}
+.spacer{margin-left:auto;}
+.order{font-family:var(--font-mono);font-size:var(--text-2xs);color:var(--text-muted);}
+
+/* progress meter */
+.progress{display:flex;align-items:center;gap:var(--space-3);}
+.progress .track{flex:1;height:5px;border-radius:var(--radius-pill);background:var(--surface-0);
+  border:var(--border-width) solid var(--border);overflow:hidden;}
+.progress .fill{height:100%;background:var(--accent);}
+.progress .num{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--text-secondary);}
+
+/* task group — indent by ONE hairline, no nested boxes */
+.subtasks{margin:var(--space-2) 0 0 var(--space-2);padding-left:var(--space-4);
+  border-left:var(--border-width) solid var(--border);}
+
+/* AI draft card — distinguished by LEFT accent hairline, no tint fill */
+.ai-card{background:var(--surface-1);border:var(--border-width) solid var(--border);
+  border-left:2px solid var(--accent);border-radius:var(--radius-lg);
+  padding:var(--space-4) var(--space-5);}
+.voice{font-family:var(--font-voice);color:var(--text-secondary);line-height:var(--lh-snug);}
+.voice .em{color:var(--text-primary);}
+
+/* smart input — underline focus, no surrounding box */
+.smart{border-bottom:1.5px solid var(--border-strong);padding-bottom:var(--space-3);
+  transition:border-color var(--dur-fast) var(--ease-out);}
+.smart:focus-within{border-color:var(--accent);}
+.smart textarea{width:100%;border:0;background:transparent;resize:none;font:inherit;
+  font-size:var(--text-lg);color:var(--text-primary);outline:none;line-height:var(--lh-snug);}
+.smart textarea::placeholder{color:var(--text-muted);}
+.smart .foot{display:flex;align-items:center;justify-content:space-between;margin-top:var(--space-3);}
+.linkbtn{font:inherit;font-size:var(--text-sm);color:var(--text-secondary);background:0;border:0;
+  cursor:pointer;padding:0;border-bottom:var(--border-width) solid transparent;}
+.linkbtn:hover{color:var(--text-primary);border-bottom-color:var(--border-strong);}
+
+/* empty / error / banners */
+.empty{text-align:center;padding:var(--space-12) var(--space-6);}
+.empty .big{font-family:var(--font-voice);font-size:var(--text-2xl);margin:0 0 var(--space-3);}
+.empty p{color:var(--text-secondary);margin:0 0 var(--space-5);}
+.banner{display:flex;align-items:flex-start;gap:var(--space-3);font-size:var(--text-sm);
+  border:var(--border-width) solid var(--border);border-radius:var(--radius-md);
+  padding:var(--space-3) var(--space-4);}
+.banner.err{border-color:var(--danger);color:var(--danger);}
+.banner .glyph{font-weight:var(--fw-medium);}
+
+/* faux dialog (static, in-flow) */
+.scrim{min-height:300px;background:rgba(0,0,0,.40);border-radius:var(--radius-lg);
+  display:flex;align-items:center;justify-content:center;padding:var(--space-6);}
+.dialog{width:100%;max-width:420px;background:var(--surface-2);border:var(--border-width) solid var(--border);
+  border-radius:var(--radius-lg);box-shadow:var(--shadow-pop);padding:var(--space-5);}
+.dialog h3{margin:0 0 var(--space-2);font-size:var(--text-lg);font-weight:var(--fw-medium);}
+.dialog .acts{display:flex;justify-content:flex-end;gap:var(--space-3);margin-top:var(--space-5);}
+
+/* composite top nav */
+.appnav{display:flex;align-items:center;justify-content:space-between;
+  padding-bottom:var(--space-3);border-bottom:var(--border-width) solid var(--border);}
+.appnav .tabs{display:flex;gap:var(--space-4);}
+.appnav .tab{font-size:var(--text-sm);color:var(--text-secondary);padding-bottom:6px;
+  border-bottom:2px solid transparent;cursor:pointer;}
+.appnav .tab.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:var(--fw-medium);}
+.streak{font-size:var(--text-xs);color:var(--text-secondary);
+  border:var(--border-width) solid var(--border);border-radius:var(--radius-pill);padding:3px 10px;}
+.note{font-size:var(--text-xs);color:var(--text-muted);margin-top:var(--space-2);}
+.stack-sm > * + *{margin-top:var(--space-4);}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-flame" viewBox="0 0 24 24"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+  <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+</defs></svg>
+
+<div class="topbar">
+  <div class="brand"><b>TaskFlow</b><span class="t-sm">Design System</span><span class="draft">DRAFT v0.1</span></div>
+  <div class="seg" role="group" aria-label="主题切换">
+    <button class="iconbtn" data-set="light" aria-pressed="true" aria-label="普通" title="普通"><svg class="ic"><use href="#i-sun"/></svg></button>
+    <button class="iconbtn" data-set="sepia" aria-pressed="false" aria-label="护眼" title="护眼"><svg class="ic"><use href="#i-leaf"/></svg></button>
+    <button class="iconbtn" data-set="dark" aria-pressed="false" aria-label="夜间" title="夜间"><svg class="ic"><use href="#i-moon"/></svg></button>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <p class="note" style="margin-top:var(--space-4)">只读视觉验收页 · 基于 docs/design-system.md 与 tokens.draft.css · 不接业务逻辑 · 切换右上角主题可同时验收 普通 / 护眼 / 夜间。</p>
+
+  <!-- 1. TYPOGRAPHY -->
+  <section>
+    <p class="sec-label">字体层级 — Type scale</p>
+    <div class="stack-sm">
+      <div><span class="t-3xl">把今天该做的事说出来</span><span class="type-spec">36 / voice serif / 500</span></div>
+      <div><span class="t-2xl">智能化 GTD 系统</span><span class="type-spec">28 / sans / 500</span></div>
+      <div><span class="t-xl">待办事项</span><span class="type-spec">22 / sans / 500</span></div>
+      <div><span class="t-lg voice">系统会替你整理、分类与推进。</span><span class="type-spec">18 / voice serif / 400</span></div>
+      <div><span class="t-base">完成数据库课程设计</span><span class="type-spec">15 / sans / 400 — body</span></div>
+      <div><span class="t-sm">明天下午截止 · 学习</span><span class="type-spec">13 / sans / secondary</span></div>
+      <div><span class="t-xs">连续打卡 5 天</span><span class="type-spec">12 / sans / muted</span></div>
+    </div>
+    <p class="note">两种字重（400 / 500）。系统“声音”用衬线（Source Serif 4 / Noto Serif SC）；用户层与控件用无衬线（Hanken Grotesk / Noto Sans SC）。</p>
+  </section>
+
+  <!-- 2. CONTROLS -->
+  <section>
+    <p class="sec-label">按钮 — Button（轻薄 · 文档工具感 · 悬浮无浮动）</p>
+    <div class="row">
+      <button class="btn btn--primary"><svg class="ic"><use href="#i-spark"/></svg>智能解析</button>
+      <button class="btn"><svg class="ic"><use href="#i-check"/></svg>确认入库</button>
+      <button class="btn btn--ghost">放弃</button>
+      <button class="btn btn--primary" disabled>正在整理…</button>
+    </div>
+    <p class="note">主操作 = 实心胶囊（已锁定）。次级用发丝线胶囊，弱操作用 ghost。</p>
+  </section>
+
+  <section>
+    <p class="sec-label">输入 — Input / Textarea / Select</p>
+    <div class="grid2">
+      <div>
+        <label class="label" for="i1">任务标题</label>
+        <input class="field" id="i1" value="写数据库课设报告初稿" />
+      </div>
+      <div>
+        <label class="label" for="s1">分类</label>
+        <select class="field" id="s1"><option>学习</option><option>工作</option><option>生活</option><option>家庭</option><option>其他</option></select>
+      </div>
+      <div style="grid-column:1/-1">
+        <label class="label" for="t1">描述</label>
+        <textarea class="field" id="t1" rows="2" placeholder="补充说明（可留空）"></textarea>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. CARD + TASK ROW -->
+  <section>
+    <p class="sec-label">卡片 + 任务行 — Card / TaskRow / TaskGroup</p>
+    <div class="card">
+      <div class="task">
+        <span class="check done"><svg class="ic ic--sm"><use href="#i-check"/></svg></span>
+        <span class="task-title" style="color:var(--text-muted);text-decoration:line-through">画 ER 图</span>
+        <span class="tag spacer">学习</span>
+        <span class="stars"><i class="on">★</i><i class="on">★</i><i class="on">★</i><i>★</i><i>★</i></span>
+      </div>
+      <!-- task group -->
+      <div class="task">
+        <span class="check"></span>
+        <div style="flex:1">
+          <div class="row" style="gap:var(--space-2)">
+            <span class="task-title">完成数据库课程设计</span>
+            <span class="tag">任务组</span><span class="tag">学习</span>
+          </div>
+          <div class="progress" style="margin-top:var(--space-2)">
+            <span class="track"><span class="fill" style="width:40%"></span></span>
+            <span class="num">2 / 5</span>
+            <span class="meta due-over">7/10 截止</span>
+          </div>
+          <div class="subtasks">
+            <div class="task done"><span class="check done"><svg class="ic ic--sm"><use href="#i-check"/></svg></span><span class="task-title">画 ER 图</span><span class="order spacer">①</span></div>
+            <div class="task"><span class="check"></span><span class="task-title">写数据库报告初稿</span><span class="order spacer">③ 进行中</span></div>
+            <div class="task"><span class="check"></span><span class="task-title">联调前后端接口</span><span class="order spacer">④</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="task">
+        <span class="check"></span>
+        <span class="task-title">给妈妈打电话</span>
+        <span class="tag spacer">家庭</span>
+        <span class="stars"><i class="on">★</i><i class="on">★</i><i>★</i><i>★</i><i>★</i></span>
+        <span class="meta">今天</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. AI DRAFT CARD -->
+  <section>
+    <p class="sec-label">AI 解析确认草稿 — AiDraftCard（衬线声音 + 左侧强调发丝线，无色块）</p>
+    <div class="ai-card">
+      <p class="voice" style="margin:0 0 var(--space-4)"><svg class="ic ic--sm" style="color:var(--accent)"><use href="#i-spark"/></svg> <span class="em">已整理为可编辑草稿</span>，确认前可修改任意字段，不会自动入库。</p>
+      <div class="grid2">
+        <div><label class="label">标题</label><input class="field" value="写数据库课设报告初稿"></div>
+        <div><label class="label">截止</label><input class="field" value="明天 18:00"></div>
+        <div><label class="label">分类</label><select class="field"><option>学习</option><option>工作</option></select></div>
+        <div><label class="label">重要程度</label>
+          <div style="padding-top:8px"><span class="stars" style="font-size:var(--text-md)"><i class="on">★</i><i class="on">★</i><i class="on">★</i><i class="on">★</i><i>★</i></span></div>
+        </div>
+      </div>
+      <p class="voice" style="font-size:var(--text-sm);margin:var(--space-4) 0 0">建议改写：<span class="em">周三前找导师确认论文选题</span> —— 原任务过于笼统，缺少可执行的下一步。</p>
+      <div class="row" style="justify-content:flex-end;margin-top:var(--space-4)">
+        <button class="btn btn--ghost">放弃</button>
+        <button class="btn btn--primary">确认入库</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. AI VOICE TEXT -->
+  <section>
+    <p class="sec-label">AI 说明文本 — 早间推荐 / 晚间总结 / 检索说明（系统的“声音”）</p>
+    <div class="grid2">
+      <div class="ai-card">
+        <p class="t-xs" style="margin:0 0 var(--space-2)">早间推荐</p>
+        <p class="voice" style="margin:0">早上好。今天最值得先做<span class="em">写数据库报告初稿</span>——明天截止且重要程度高；其次是<span class="em">联调接口</span>，它卡着后面两步。</p>
+      </div>
+      <div class="ai-card">
+        <p class="t-xs" style="margin:0 0 var(--space-2)">语义检索说明</p>
+        <p class="voice" style="margin:0">为你找到 3 件<span class="em">本周到期的学习任务</span>，按紧迫度排序，最紧的是数据库课设。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. STATES -->
+  <section>
+    <p class="sec-label">空状态 / 错误（降级）状态 — Empty / Error</p>
+    <div class="grid2">
+      <div class="card empty">
+        <p class="big">还没有待办</p>
+        <p>在上面说一句你要做的事，TaskFlow 会替你整理成任务。</p>
+        <button class="btn btn--primary"><svg class="ic"><use href="#i-plus"/></svg>写下第一件事</button>
+      </div>
+      <div class="stack-sm">
+        <div class="banner err"><span class="glyph">!</span><span>智能服务暂时不可用，已为你切换到手动表单，核心功能不受影响。</span></div>
+        <div class="banner"><span class="glyph" style="color:var(--accent)">…</span><span class="voice">正在理解你的输入…</span></div>
+        <div class="card">
+          <p class="label" style="margin:0 0 var(--space-3)">加载占位（AI 推理需数秒）</p>
+          <div style="height:10px;border-radius:var(--radius-pill);background:var(--surface-0);border:var(--border-width) solid var(--border);width:90%"></div>
+          <div style="height:10px;border-radius:var(--radius-pill);background:var(--surface-0);border:var(--border-width) solid var(--border);width:60%;margin-top:var(--space-2)"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7. DIALOG -->
+  <section>
+    <p class="sec-label">对话框 — Dialog（用于批量捕获复核 / 拆解面板）</p>
+    <div class="scrim">
+      <div class="dialog">
+        <h3>确认创建任务组</h3>
+        <p class="t-sm" style="margin:0 0 var(--space-4)">将「完成课程设计」拆为 1 个父任务 + 4 个子任务，按建议顺序排列。</p>
+        <div class="progress"><span class="track"><span class="fill" style="width:0%"></span></span><span class="num">0 / 4</span></div>
+        <div class="acts"><button class="btn btn--ghost">取消</button><button class="btn btn--primary">创建任务组</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8. COMPOSITE -->
+  <section>
+    <p class="sec-label">核心任务页面局部组合 — Composite</p>
+    <div class="card" style="padding:var(--space-5) var(--space-6)">
+      <div class="appnav">
+        <div class="tabs"><span class="tab on">今日</span><span class="tab">全部任务</span><span class="tab">统计</span></div>
+        <span class="streak"><svg class="ic ic--sm"><use href="#i-flame"/></svg> 连续 5 天</span>
+      </div>
+
+      <div class="smart" style="margin-top:var(--space-6)">
+        <textarea rows="1">明天下午把数据库课设报告初稿写完，放到学习分类，优先级高一点</textarea>
+        <div class="foot">
+          <button class="linkbtn">批量捕获</button>
+          <button class="btn btn--primary">智能解析</button>
+        </div>
+      </div>
+
+      <div class="ai-card" style="margin-top:var(--space-5)">
+        <p class="voice" style="margin:0 0 var(--space-3)"><svg class="ic ic--sm" style="color:var(--accent)"><use href="#i-spark"/></svg> <span class="em">已整理为可编辑草稿</span>，确认前可修改，不会自动入库。</p>
+        <div class="row" style="gap:var(--space-2)">
+          <span class="task-title" style="font-weight:var(--fw-medium)">写数据库课设报告初稿</span>
+          <span class="tag">学习</span>
+          <span class="stars"><i class="on">★</i><i class="on">★</i><i class="on">★</i><i class="on">★</i><i>★</i></span>
+          <span class="meta">明天 18:00</span>
+        </div>
+        <div class="row" style="justify-content:flex-end;margin-top:var(--space-4)">
+          <button class="btn btn--ghost">放弃</button>
+          <button class="btn btn--primary">确认入库</button>
+        </div>
+      </div>
+
+      <p class="t-sm" style="margin:var(--space-8) 0 var(--space-2)">待办事项</p>
+      <div>
+        <div class="task">
+          <span class="check"></span>
+          <div style="flex:1">
+            <div class="row" style="gap:var(--space-2)"><span class="task-title">完成数据库课程设计</span><span class="tag">任务组</span><span class="tag">学习</span></div>
+            <div class="progress" style="margin-top:var(--space-2)"><span class="track"><span class="fill" style="width:40%"></span></span><span class="num">2 / 5</span><span class="meta due-over">7/10 截止</span></div>
+          </div>
+        </div>
+        <div class="task"><span class="check"></span><span class="task-title">给妈妈打电话</span><span class="tag spacer">家庭</span><span class="meta">今天</span></div>
+      </div>
+    </div>
+  </section>
+
+  <p class="note" style="margin-top:var(--space-12)">— 预览结束 · 如需调整方向/字体/强调色，见 design-system.md §11 待定项。</p>
+</div>
+
+<script>
+  /* Theme switch — the only script; visual-only, no business logic. */
+  const root = document.documentElement;
+  document.querySelectorAll('.seg button').forEach(b => {
+    b.addEventListener('click', () => {
+      root.setAttribute('data-theme', b.dataset.set);
+      document.querySelectorAll('.seg button').forEach(x =>
+        x.setAttribute('aria-pressed', String(x === b)));
+    });
+  });
+</script>
+</body>
+</html>
