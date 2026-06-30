@@ -1,11 +1,12 @@
 import { ReactNode, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Sun, Leaf, Moon, LogOut, ChevronRight,
+  Sun, Leaf, Moon, LogOut, ChevronRight, Menu, X,
   LayoutDashboard, CheckSquare, Search, Layers, BarChart2, Trash2, Settings
 } from 'lucide-react'
 import { useAppStore } from '@/store'
 import { authApi } from '@/api/auth'
+import { useIsMobile } from '@/lib/useIsMobile'
 import { Logo } from '@/components/ui/Logo'
 
 export type SectionId = 'today' | 'tasks' | 'search' | 'templates' | 'stats' | 'recycle' | 'settings'
@@ -35,8 +36,17 @@ interface Props {
 export function AppShell({ active, onNavigate, children }: Props) {
   const { theme, setTheme, phone, clearSession } = useAppStore()
   const navigate = useNavigate()
+  const isMobile = useIsMobile()
   const [loggingOut, setLoggingOut] = useState(false)
   const [collapsed, setCollapsed] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  // On mobile the sidebar is a slide-in drawer; the desktop collapse state is ignored.
+  const sidebarCollapsed = isMobile ? false : collapsed
+
+  function handleNavigate(id: SectionId) {
+    onNavigate(id)
+    if (isMobile) setDrawerOpen(false)
+  }
 
   const themeItems: { id: 'light' | 'sepia' | 'dark'; label: string; icon: ReactNode }[] = [
     { id: 'light', label: '普通', icon: <Sun size={13} aria-hidden /> },
@@ -53,32 +63,79 @@ export function AppShell({ active, onNavigate, children }: Props) {
     navigate('/login')
   }
 
+  const asideStyle: React.CSSProperties = isMobile
+    ? {
+        position: 'fixed',
+        top: 0, bottom: 0, left: 0,
+        width: 220,
+        zIndex: 50,
+        borderRight: '1px solid var(--border)',
+        display: 'flex',
+        flexDirection: 'column',
+        background: 'var(--surface-0)',
+        overflow: 'hidden',
+        transform: drawerOpen ? 'translateX(0)' : 'translateX(-100%)',
+        transition: 'transform var(--dur-base) var(--ease-out)',
+        boxShadow: drawerOpen ? 'var(--shadow-pop)' : 'none',
+      }
+    : {
+        width: sidebarCollapsed ? 56 : 200,
+        flexShrink: 0,
+        borderRight: '1px solid var(--border)',
+        display: 'flex',
+        flexDirection: 'column',
+        transition: 'width var(--dur-base) var(--ease-out)',
+        background: 'var(--surface-0)',
+        overflow: 'hidden',
+      }
+
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--surface-0)' }}>
+      {/* Mobile top bar */}
+      {isMobile && (
+        <header style={{
+          position: 'fixed', top: 0, left: 0, right: 0, zIndex: 40,
+          height: 52, display: 'flex', alignItems: 'center', gap: '10px',
+          padding: '0 14px', background: 'var(--surface-0)',
+          borderBottom: '1px solid var(--border)',
+        }}>
+          <button
+            onClick={() => setDrawerOpen(true)}
+            aria-label="打开菜单"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', padding: '4px' }}
+          >
+            <Menu size={20} />
+          </button>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '7px' }}>
+            <Logo size={20} />
+            <span style={{ fontSize: 'var(--text-base)', fontWeight: 'var(--fw-medium)', color: 'var(--accent)', letterSpacing: '-0.3px' }}>
+              TaskFlow
+            </span>
+          </span>
+        </header>
+      )}
+
+      {/* Mobile drawer backdrop */}
+      {isMobile && drawerOpen && (
+        <div
+          onClick={() => setDrawerOpen(false)}
+          style={{ position: 'fixed', inset: 0, zIndex: 45, background: 'rgba(0,0,0,0.4)' }}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside
-        style={{
-          width: collapsed ? 56 : 200,
-          flexShrink: 0,
-          borderRight: '1px solid var(--border)',
-          display: 'flex',
-          flexDirection: 'column',
-          transition: 'width var(--dur-base) var(--ease-out)',
-          background: 'var(--surface-0)',
-          overflow: 'hidden',
-        }}
-      >
+      <aside style={asideStyle}>
         {/* Logo */}
         <div style={{
-          padding: collapsed ? '20px 16px 16px' : '20px 20px 16px',
+          padding: sidebarCollapsed ? '20px 16px 16px' : '20px 20px 16px',
           borderBottom: '1px solid var(--border)',
           display: 'flex',
           alignItems: 'center',
           gap: '8px',
-          justifyContent: collapsed ? 'center' : 'space-between',
+          justifyContent: sidebarCollapsed ? 'center' : 'space-between',
           minHeight: 60,
         }}>
-          {collapsed ? (
+          {sidebarCollapsed ? (
             <button
               onClick={() => setCollapsed(false)}
               aria-label="展开侧边栏"
@@ -95,17 +152,17 @@ export function AppShell({ active, onNavigate, children }: Props) {
                 </span>
               </span>
               <button
-                onClick={() => setCollapsed(true)}
-                aria-label="收起侧边栏"
+                onClick={() => (isMobile ? setDrawerOpen(false) : setCollapsed(true))}
+                aria-label={isMobile ? '关闭菜单' : '收起侧边栏'}
                 style={{
                   background: 'none', border: 'none', cursor: 'pointer',
                   color: 'var(--text-muted)', padding: '4px',
                   display: 'flex', alignItems: 'center',
-                  transform: 'rotate(180deg)',
+                  transform: isMobile ? 'none' : 'rotate(180deg)',
                   transition: 'transform var(--dur-base)',
                 }}
               >
-                <ChevronRight size={15} />
+                {isMobile ? <X size={17} /> : <ChevronRight size={15} />}
               </button>
             </>
           )}
@@ -118,14 +175,14 @@ export function AppShell({ active, onNavigate, children }: Props) {
             return (
               <button
                 key={item.id}
-                onClick={() => onNavigate(item.id)}
+                onClick={() => handleNavigate(item.id)}
                 style={{
                   width: '100%',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '9px',
-                  padding: collapsed ? '9px 0' : '9px 20px',
-                  justifyContent: collapsed ? 'center' : 'flex-start',
+                  padding: sidebarCollapsed ? '9px 0' : '9px 20px',
+                  justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
                   background: isActive ? 'var(--accent-soft)' : 'none',
                   border: 'none',
                   borderLeft: isActive ? '2px solid var(--accent)' : '2px solid transparent',
@@ -139,16 +196,16 @@ export function AppShell({ active, onNavigate, children }: Props) {
                 }}
               >
                 {item.icon}
-                {!collapsed && item.label}
+                {!sidebarCollapsed && item.label}
               </button>
             )
           })}
         </nav>
 
         {/* Bottom: theme + user */}
-        <div style={{ borderTop: '1px solid var(--border)', padding: collapsed ? '12px 8px' : '12px 16px' }}>
+        <div style={{ borderTop: '1px solid var(--border)', padding: sidebarCollapsed ? '12px 8px' : '12px 16px' }}>
           {/* Theme switcher */}
-          <div style={{ display: 'flex', gap: '4px', marginBottom: '10px', justifyContent: collapsed ? 'center' : 'flex-start' }}>
+          <div style={{ display: 'flex', gap: '4px', marginBottom: '10px', justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
             {themeItems.map((t) => (
               <button
                 key={t.id}
@@ -172,7 +229,7 @@ export function AppShell({ active, onNavigate, children }: Props) {
           </div>
 
           {/* User */}
-          {!collapsed && (
+          {!sidebarCollapsed && (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>{phone}</span>
               <button
@@ -190,7 +247,7 @@ export function AppShell({ active, onNavigate, children }: Props) {
       </aside>
 
       {/* Main content */}
-      <main style={{ flex: 1, overflowY: 'auto', minWidth: 0 }}>
+      <main style={{ flex: 1, overflowY: 'auto', minWidth: 0, paddingTop: isMobile ? 52 : 0 }}>
         {children}
       </main>
     </div>

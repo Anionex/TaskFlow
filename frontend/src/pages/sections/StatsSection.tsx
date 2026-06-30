@@ -3,6 +3,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { PageContainer } from '@/components/layout/PageContainer'
 import { userApi } from '@/api/user'
 import { useAppStore } from '@/store'
+import { useIsMobile } from '@/lib/useIsMobile'
 import type { UserStats } from '@/types'
 
 function cssVar(name: string, fallback: string) {
@@ -25,6 +26,7 @@ async function ensureChart() {
 
 export function StatsSection() {
   const theme = useAppStore((s) => s.theme)
+  const isMobile = useIsMobile()
   const [stats, setStats] = useState<UserStats | null>(null)
   const [loading, setLoading] = useState(true)
   const pieRef = useRef<HTMLCanvasElement>(null)
@@ -155,14 +157,14 @@ export function StatsSection() {
       <h1 style={{ fontSize: 'var(--text-xl)', fontWeight: 'var(--fw-medium)', marginBottom: '32px', color: 'var(--text-primary)' }}>统计</h1>
 
       {/* Summary numbers */}
-      <div style={{ display: 'flex', gap: '32px', marginBottom: '40px', paddingBottom: '28px', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', rowGap: '20px', gap: isMobile ? '0' : '32px', marginBottom: isMobile ? '32px' : '40px', paddingBottom: '28px', borderBottom: '1px solid var(--border)' }}>
         {[
           { label: '总计', value: stats.total, color: 'var(--text-primary)' },
           { label: '已完成', value: stats.completed, color: 'var(--success)' },
           { label: '待办', value: stats.pending, color: 'var(--accent)' },
           { label: '已过期', value: stats.expired, color: 'var(--danger)' },
         ].map((item) => (
-          <div key={item.label}>
+          <div key={item.label} style={isMobile ? { flex: '0 0 50%' } : undefined}>
             <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 'var(--fw-medium)', color: item.color, fontFamily: 'var(--font-mono)', lineHeight: 1 }}>
               {item.value}
             </div>
@@ -172,14 +174,19 @@ export function StatsSection() {
       </div>
 
       {/* Charts */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 320px) minmax(0, 1fr)', gap: '48px', alignItems: 'start' }}>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 320px) minmax(0, 1fr)',
+        gap: isMobile ? '32px' : '48px',
+        alignItems: 'start',
+      }}>
         {/* Pie */}
         <div style={{ minWidth: 0 }}>
           <h2 style={{ fontSize: 'var(--text-base)', fontWeight: 'var(--fw-medium)', color: 'var(--text-primary)', marginBottom: '16px' }}>
             任务分布
           </h2>
           {hasPieData ? (
-            <div style={{ position: 'relative', height: 280, width: '100%' }}>
+            <div style={{ position: 'relative', height: isMobile ? 240 : 280, width: '100%' }}>
               <canvas ref={pieRef} />
             </div>
           ) : (
@@ -193,7 +200,7 @@ export function StatsSection() {
             近 12 月完成趋势
           </h2>
           {stats.monthly_completed?.length ? (
-            <div style={{ position: 'relative', height: 280, width: '100%' }}>
+            <div style={{ position: 'relative', height: isMobile ? 240 : 280, width: '100%' }}>
               <canvas ref={barRef} />
             </div>
           ) : (
