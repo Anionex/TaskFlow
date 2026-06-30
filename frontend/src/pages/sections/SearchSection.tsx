@@ -26,7 +26,7 @@ export function SearchSection() {
         addToast({ type: 'error', message: res.message || '检索失败' })
       }
     } catch {
-      addToast({ type: 'error', message: 'AI 一时没接上，稍后再试' })
+      addToast({ type: 'error', message: 'AI 服务暂时不可用' })
     } finally {
       setLoading(false)
     }
@@ -38,7 +38,7 @@ export function SearchSection() {
         语义检索
       </h1>
       <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: '28px' }}>
-        记不清确切字眼也无妨——把它大概的样子说给我，我顺着意思替你找。
+        用自然语言描述你想找的任务，AI 会理解语义并找到相关内容。
       </p>
 
       <form onSubmit={handleSearch} style={{ display: 'flex', gap: '10px', marginBottom: '28px' }}>
@@ -48,7 +48,7 @@ export function SearchSection() {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="比如：上周搁下的工作、那些要紧的学习计划…"
+            placeholder="例如：上周没完成的工作任务、关于学习的重要事项…"
             style={{
               width: '100%',
               background: 'var(--surface-1)',
@@ -102,7 +102,7 @@ export function SearchSection() {
           )}
 
           {result.items.length === 0 ? (
-            <p style={{ fontFamily: 'var(--font-voice)', color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>翻遍了，暂时没找到对得上的，换个说法再试试？</p>
+            <p style={{ color: 'var(--text-muted)', fontSize: 'var(--text-sm)' }}>没有找到相关任务。</p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: '12px' }}>

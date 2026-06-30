@@ -12,22 +12,22 @@ export function LandingPage() {
     {
       icon: <Sparkles size={15} aria-hidden />,
       title: '自然语言输入',
-      desc: '你写一句话，它解析出标题、分类、截止时间和星级，不用再一个字段一个字段地填。',
+      desc: '用一句话描述你的想法，系统自动解析为结构化任务，无需手动填写分类、截止日等字段。',
     },
     {
       icon: <Brain size={15} aria-hidden />,
-      title: '案头助手',
-      desc: '早上它挑出今天最该做的几件并给出理由，晚上替你回看这一天。找旧任务时用一句话描述就行，不用记关键词。',
+      title: 'AI 智能理解',
+      desc: '早间推荐今日优先任务，晚间总结完成情况；语义检索让你用描述而非关键字找到任务。',
     },
     {
       icon: <Layers size={15} aria-hidden />,
-      title: '大目标拆解',
-      desc: '给它一个大目标，比如“完成课程设计”，它拆成一组有先后的小任务，每步进度看得见。',
+      title: '目标拆解',
+      desc: '输入一个大目标，AI 自动拆解为可执行的子任务序列，以任务组形式统一管理进度。',
     },
     {
       icon: <BarChart2 size={15} aria-hidden />,
-      title: '看得见的坚持',
-      desc: '打卡天数、完成趋势、分类占比都画成图表，让你看见自己做了多少。',
+      title: '完成追踪',
+      desc: '打卡连续天数、完成统计图表、分类饼图，直观呈现你的执行力。',
     },
   ]
 
@@ -128,7 +128,7 @@ export function LandingPage() {
           marginBottom: '24px',
           letterSpacing: '-0.5px',
         }}>
-          你少操心，<br />让系统多懂你一点
+          用户少操作，<br />系统多理解
         </h1>
         <p className="lp-hero-sub" style={{
           fontSize: 'var(--text-md)',
@@ -138,7 +138,7 @@ export function LandingPage() {
           maxWidth: 500,
           margin: '0 auto 40px',
         }}>
-          说一句话，TaskFlow 帮你整理成带分类、时间和优先级的任务。每一条你都能改、能确认，最后拍板的是你。
+          说出你的想法，TaskFlow 自动整理。从自然语言到结构化任务，从碎片想法到清晰计划，始终保持你在控制之中。
         </p>
         <div className="lp-hero-cta" style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
           <button
@@ -159,7 +159,7 @@ export function LandingPage() {
               fontFamily: 'var(--font-sans)',
             }}
           >
-            从这里开始
+            免费开始使用
             <ArrowRight size={15} aria-hidden />
           </button>
           <button
@@ -175,7 +175,7 @@ export function LandingPage() {
               fontFamily: 'var(--font-sans)',
             }}
           >
-            老朋友，登录
+            已有账号，登录
           </button>
         </div>
       </section>
@@ -192,7 +192,7 @@ export function LandingPage() {
           marginBottom: '48px',
           textAlign: 'center',
         }}>
-          它能为你做的
+          核心能力
         </h2>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
           {features.map((f, i) => (
@@ -214,7 +214,7 @@ export function LandingPage() {
       {/* Footer */}
       <footer style={{ borderTop: '1px solid var(--border)', padding: '24px 48px', textAlign: 'center' }}>
         <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-          TaskFlow V2.0 · 智能化 GTD
+          TaskFlow V2.0 — 专注、清晰、掌控
         </p>
       </footer>
     </div>

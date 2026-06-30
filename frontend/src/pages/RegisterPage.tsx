@@ -55,7 +55,7 @@ export function RegisterPage() {
         navigate('/login')
       }
     } catch {
-      setError('网络似乎不太顺畅，稍后再试')
+      setError('网络错误，请稍后重试')
     } finally {
       setLoading(false)
     }
@@ -76,7 +76,7 @@ export function RegisterPage() {
           <div style={{ fontSize: 'var(--text-xl)', fontWeight: 'var(--fw-medium)', color: 'var(--accent)', marginBottom: '6px' }}>
             TaskFlow
           </div>
-          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>开个头，从这里</p>
+          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>创建新账号</p>
         </div>
 
         <div style={{
@@ -135,7 +135,7 @@ export function RegisterPage() {
               }}
             >
               {loading && <Spinner size={14} />}
-              {loading ? '正在创建…' : '注册'}
+              {loading ? '注册中…' : '注册'}
             </button>
           </form>
 

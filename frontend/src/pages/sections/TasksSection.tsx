@@ -169,7 +169,7 @@ export function TasksSection() {
         deadline: createDraft.deadline || undefined,
       })
       if (res.success) {
-        addToast({ type: 'success', message: '已记下' })
+        addToast({ type: 'success', message: '任务已创建' })
         setShowCreate(false)
         setCreateDraft(emptyDraft())
         loadTasks()
@@ -226,7 +226,7 @@ export function TasksSection() {
       if (res.success && res.data) setRewriteResult(res.data)
       else addToast({ type: 'error', message: res.message || '改写失败' })
     } catch {
-      addToast({ type: 'error', message: 'AI 一时没接上，稍后再试' })
+      addToast({ type: 'error', message: 'AI 服务暂时不可用' })
     } finally {
       setRewriteLoading(false)
     }
@@ -250,7 +250,7 @@ export function TasksSection() {
       if (res.success && res.data) setDecomposeResult(res.data)
       else addToast({ type: 'error', message: res.message || '拆解失败' })
     } catch {
-      addToast({ type: 'error', message: 'AI 一时没接上，稍后再试' })
+      addToast({ type: 'error', message: 'AI 服务暂时不可用' })
     } finally {
       setDecomposeLoading(false)
     }
@@ -449,9 +449,7 @@ export function TasksSection() {
         </div>
       ) : tasks.length === 0 ? (
         <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-base)', color: 'var(--text-muted)', textAlign: 'center', padding: '48px 0' }}>
-          {tab === 'completed' ? '还没有画上句号的事，慢慢来。'
-            : tab === 'expired' ? '没有过期的任务，节奏正好。'
-            : '这里还空着，想到什么就记下吧。'}
+          暂无任务
         </p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column' }}>

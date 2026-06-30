@@ -165,7 +165,7 @@ export function TemplatesSection() {
             }}
           >
             {generating ? <Spinner size={12} /> : <Zap size={13} aria-hidden />}
-            立即生成
+            生成循环任务
           </button>
           <button
             onClick={openCreate}
@@ -183,14 +183,14 @@ export function TemplatesSection() {
       </div>
 
       <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: '24px' }}>
-        把那些周而复始的事交给模板——到点自动生成；等不及，点"立即生成"也行。
+        循环任务模板会在指定时间自动生成任务，点击"生成循环任务"可立即触发。
       </p>
 
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '48px' }}><Spinner size={20} /></div>
       ) : templates.length === 0 ? (
         <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-base)', color: 'var(--text-muted)', textAlign: 'center', padding: '48px 0' }}>
-          还没有模板。有什么是每天、每周都要做的？先立一个吧。
+          暂无模板，创建一个循环任务模板
         </p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column' }}>

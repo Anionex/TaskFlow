@@ -51,7 +51,7 @@ export function SmartInput({ onParse, onBrainDump, loading, loadingLabel }: Prop
       {/* Inline sparkle + label */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '10px', color: 'var(--text-muted)' }}>
         <Sparkles size={13} aria-hidden />
-        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>随口说说，我来记下</span>
+        <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>智能输入 — 用自然语言描述任务</span>
       </div>
 
       <textarea
@@ -66,7 +66,7 @@ export function SmartInput({ onParse, onBrainDump, loading, loadingLabel }: Prop
             handleParse()
           }
         }}
-        placeholder="比如：周五前把设计稿收个尾，挺要紧的"
+        placeholder="例如：下周五前完成设计稿，工作相关，比较重要"
         rows={2}
         style={{
           width: '100%',

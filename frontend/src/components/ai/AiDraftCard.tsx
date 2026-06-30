@@ -64,7 +64,7 @@ export function AiDraftCard({ draft: initial, onConfirm, onDiscard }: Props) {
         gap: '6px',
       }}>
         <Sparkles size={13} style={{ color: 'var(--accent)', flexShrink: 0 }} aria-hidden />
-        我先替你拟了份草稿，哪里不合意，落笔改就是，确认前都还作数。
+        已整理为可编辑草稿，确认前可修改任意字段。
       </p>
 
       {/* Editable fields */}

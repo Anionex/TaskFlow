@@ -27,7 +27,7 @@ export function LoginPage() {
         setError(res.message || '登录失败')
       }
     } catch {
-      setError('网络似乎不太顺畅，稍后再试')
+      setError('网络错误，请稍后重试')
     } finally {
       setLoading(false)
     }
@@ -50,7 +50,7 @@ export function LoginPage() {
             TaskFlow
           </div>
           <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)' }}>
-            又见面了
+            欢迎回来
           </p>
         </div>
 
@@ -143,7 +143,7 @@ export function LoginPage() {
               }}
             >
               {loading && <Spinner size={14} />}
-              {loading ? '正在进入…' : '登录'}
+              {loading ? '登录中…' : '登录'}
             </button>
           </form>
 

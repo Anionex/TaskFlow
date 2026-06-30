@@ -76,14 +76,14 @@ export function RecycleSection() {
       </div>
 
       <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: '24px' }}>
-        删掉的事都暂存在这里——想起来还需要，随时唤回；确定不要了，再彻底告别。
+        已删除的任务保留在这里，可还原或永久删除。
       </p>
 
       {loading ? (
         <div style={{ display: 'flex', justifyContent: 'center', padding: '48px' }}><Spinner size={20} /></div>
       ) : tasks.length === 0 ? (
         <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-base)', color: 'var(--text-muted)', textAlign: 'center', padding: '48px 0' }}>
-          一干二净，这里没什么可惋惜的。
+          回收站为空
         </p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column' }}>

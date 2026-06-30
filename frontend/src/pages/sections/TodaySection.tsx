@@ -57,11 +57,11 @@ export function TodaySection() {
       if (res.success && res.data) {
         setParseDraft(res.data)
       } else {
-        addToast({ type: 'error', message: res.message || '没能理清，先帮你打开手动填写' })
+        addToast({ type: 'error', message: res.message || '解析失败，请手动填写' })
         setShowCreate(true)
       }
     } catch {
-      addToast({ type: 'error', message: 'AI 一时没接上，先手动记一笔吧' })
+      addToast({ type: 'error', message: 'AI 服务暂时不可用，请手动填写' })
       setShowCreate(true)
     } finally {
       setParseLoading(false)
@@ -79,7 +79,7 @@ export function TodaySection() {
         addToast({ type: 'error', message: res.message || '批量解析失败' })
       }
     } catch {
-      addToast({ type: 'error', message: 'AI 一时没接上，稍后再试' })
+      addToast({ type: 'error', message: 'AI 服务暂时不可用' })
     } finally {
       setBraindumpLoading(false)
     }
@@ -95,7 +95,7 @@ export function TodaySection() {
       deadline: draft.deadline ?? undefined,
     })
     if (res.success) {
-      addToast({ type: 'success', message: '已记下' })
+      addToast({ type: 'success', message: '任务已创建' })
       setParseDraft(null)
       loadStats()
     } else {
@@ -113,7 +113,7 @@ export function TodaySection() {
       deadline: draft.deadline ?? undefined,
     })
     if (res.success) {
-      addToast({ type: 'success', message: '已记下' })
+      addToast({ type: 'success', message: '任务已创建' })
       setBraindumpDrafts((d) => d.filter((_, i) => i !== idx))
       loadStats()
     } else {
@@ -129,7 +129,7 @@ export function TodaySection() {
       if (res.success && res.data) setMorningData(res.data)
       else addToast({ type: 'error', message: res.message || '推荐失败' })
     } catch {
-      addToast({ type: 'error', message: 'AI 一时没接上，稍后再试' })
+      addToast({ type: 'error', message: 'AI 服务暂时不可用' })
     } finally {
       setMorningLoading(false)
     }
@@ -143,7 +143,7 @@ export function TodaySection() {
       if (res.success && res.data) setEveningData(res.data)
       else addToast({ type: 'error', message: res.message || '总结失败' })
     } catch {
-      addToast({ type: 'error', message: 'AI 一时没接上，稍后再试' })
+      addToast({ type: 'error', message: 'AI 服务暂时不可用' })
     } finally {
       setEveningLoading(false)
     }
@@ -155,7 +155,7 @@ export function TodaySection() {
     try {
       const res = await checkinApi.checkin()
       if (res.success) {
-        addToast({ type: 'success', message: '今天，已打卡' })
+        addToast({ type: 'success', message: '打卡成功' })
         loadCheckin()
       } else {
         addToast({ type: 'error', message: res.message })
@@ -178,7 +178,7 @@ export function TodaySection() {
         deadline: newDraft.deadline || undefined,
       })
       if (res.success) {
-        addToast({ type: 'success', message: '已记下' })
+        addToast({ type: 'success', message: '任务已创建' })
         setShowCreate(false)
         setNewDraft(emptyDraft())
         loadStats()
@@ -255,7 +255,7 @@ export function TodaySection() {
           onParse={handleParse}
           onBrainDump={handleBrainDump}
           loading={parseLoading || braindumpLoading}
-          loadingLabel={braindumpLoading ? '正在逐条理清…' : '正在为你斟酌…'}
+          loadingLabel={braindumpLoading ? '正在批量整理…' : '正在解析…'}
         />
 
         {/* Parse draft */}
@@ -271,7 +271,7 @@ export function TodaySection() {
         {braindumpDrafts.length > 0 && (
           <div style={{ marginTop: '16px' }}>
             <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-              从这段话里，我理出了 {braindumpDrafts.length} 件事，逐一过目，确认无误再收下：
+              共解析出 {braindumpDrafts.length} 个任务，逐一确认后入库：
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {braindumpDrafts.map((d, i) => (
@@ -343,7 +343,7 @@ export function TodaySection() {
         {morningData && !morningLoading && (
           <div style={{ paddingLeft: '16px', borderLeft: '2px solid var(--accent)' }}>
             <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-              晨起读你的清单，这几件，今天不妨先放在手边：
+              今日推荐优先完成以下任务：
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {morningData.recommendations.map((r, i) => (
