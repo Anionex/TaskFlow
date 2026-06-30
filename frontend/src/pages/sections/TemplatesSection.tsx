@@ -126,9 +126,9 @@ export function TemplatesSection() {
     try {
       const res = await templatesApi.generate()
       if (res.success) {
-        // Backend returns the number generated, as a number or { count }.
+        // Backend returns { generated: N } (or a bare number / legacy { count }).
         const d = res.data as any
-        const count = typeof d === 'number' ? d : (d?.count ?? 0)
+        const count = typeof d === 'number' ? d : (d?.generated ?? d?.count ?? 0)
         if (count > 0) {
           addToast({ type: 'success', message: `已生成 ${count} 个任务` })
         } else {
