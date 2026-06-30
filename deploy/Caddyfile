@@ -10,6 +10,12 @@
 		reverse_proxy 127.0.0.1:8080
 	}
 
+	# 桌面客户端二进制下载。单独目录，避免被前端部署的 rsync --delete 清掉。
+	handle_path /downloads/* {
+		root * /var/www/taskflow-dl
+		file_server
+	}
+
 	# 其余走前端静态资源（SPA：找不到文件回退到 index.html）
 	handle {
 		root * /var/www/taskflow

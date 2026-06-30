@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { useRef, useEffect } from 'react'
 import gsap from 'gsap'
-import { Sparkles, ArrowRight, Brain, Layers, BarChart2 } from 'lucide-react'
+import { Sparkles, ArrowRight, Brain, Layers, BarChart2, Download } from 'lucide-react'
 import { Logo } from '@/components/ui/Logo'
 
 export function LandingPage() {
@@ -74,6 +74,24 @@ export function LandingPage() {
           </span>
         </span>
         <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={() => navigate('/download')}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px',
+              background: 'none',
+              border: '1px solid var(--border-strong)',
+              borderRadius: 'var(--radius-pill)',
+              padding: '6px 16px',
+              fontSize: 'var(--text-sm)',
+              color: 'var(--text-secondary)',
+              cursor: 'pointer',
+              fontFamily: 'var(--font-sans)',
+            }}
+          >
+            <Download size={14} aria-hidden /> 下载客户端
+          </button>
           <button
             onClick={() => navigate('/login')}
             style={{

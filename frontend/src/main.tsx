@@ -7,6 +7,7 @@ import { LandingPage } from './pages/LandingPage'
 import { LoginPage } from './pages/LoginPage'
 import { RegisterPage } from './pages/RegisterPage'
 import { PrivacyPage } from './pages/PrivacyPage'
+import { DownloadPage } from './pages/DownloadPage'
 import { AppPage } from './pages/AppPage'
 import { ToastContainer } from './components/ui/Toast'
 
@@ -24,6 +25,7 @@ function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/download" element={<DownloadPage />} />
         <Route path="/app" element={<RequireAuth><AppPage /></RequireAuth>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
