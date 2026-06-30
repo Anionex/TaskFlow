@@ -114,6 +114,15 @@
   animation: spin 0.7s linear infinite;
 }
 
+/* Agent 模式：消息 / 确认卡的淡入上浮（reduced-motion 下自动失效，见下方 0ms 覆盖） */
+@keyframes tf-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.tf-rise {
+  animation: tf-rise var(--dur-base) var(--ease-out);
+}
+
 /* ---- GSAP entrance helpers (hidden until animated; reduced-motion safe) -- */
 .tf-anim-init { opacity: 0; }
 @media (prefers-reduced-motion: reduce) {

@@ -76,6 +76,46 @@ export interface EveningResult {
   summary: string
 }
 
+// ── Agent 模式 ──────────────────────────────────────────────────────────────
+
+/** OpenAI 格式的对话历史条目，前端视为不透明令牌，原样回传后端。 */
+export type AgentMessage = Record<string, unknown>
+
+/** 本轮内发生的一步（工具调用或思考），默认折叠展示。 */
+export interface AgentStep {
+  kind: 'tool' | 'thinking'
+  name?: string
+  args?: unknown
+  ok?: boolean
+  result?: unknown
+  text?: string
+}
+
+/** 待用户确认的写操作。 */
+export interface AgentPending {
+  tool_call_id: string
+  tool: 'create_task' | 'update_task' | 'delete_task'
+  summary: string
+  preview: {
+    action: 'create' | 'update' | 'delete'
+    args: Record<string, unknown>
+    current?: Record<string, unknown> | null
+  }
+}
+
+export interface AgentTurn {
+  messages: AgentMessage[]
+  steps: AgentStep[]
+  reply: string | null
+  pending: AgentPending | null
+}
+
+export interface AgentDecision {
+  tool_call_id: string
+  approved: boolean
+  note?: string
+}
+
 export interface UserProfile {
   phone: string
   summary_tone: Tone
