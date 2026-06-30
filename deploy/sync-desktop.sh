@@ -21,7 +21,10 @@ ls -la "$TMP"
 
 echo "==> [2/3] 同步到服务器 $SSH:$DL_DIR"
 ssh "$SSH" "mkdir -p $DL_DIR"
-rsync -az -e ssh "$TMP"/ "$SSH:$DL_DIR/"
+# 不保留本地属主/权限（否则目录会变成 700/本地 UID，Caddy 无权读 → 403）；
+# 显式设目录 755、文件 644，并兜底再 chmod 一次。
+rsync -rtz --chmod=D755,F644 --no-owner --no-group --no-perms -e ssh "$TMP"/ "$SSH:$DL_DIR/"
+ssh "$SSH" "chmod 755 $DL_DIR && chmod 644 $DL_DIR/*"
 
 echo "==> [3/3] 服务器现有下载产物"
 ssh "$SSH" "ls -la $DL_DIR"
