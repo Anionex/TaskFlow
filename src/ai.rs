@@ -4,6 +4,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use uuid::Uuid;
 
 use crate::auth::current_user;
 use crate::models::Task;
@@ -18,26 +19,36 @@ struct LlmConfig {
     model: String,
 }
 
-fn get_llm_config(headers: &HeaderMap, state: &SharedState) -> LlmConfig {
-    let base_url = headers
-        .get("x-llm-base-url")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .filter(|s| !s.is_empty())
+/// 解析大模型配置，优先级：请求头(本机覆盖) → 账户已保存设置(跨设备) → 服务端默认。
+/// 账户设置存于 users 表，使得在 A 设备保存后 B 设备登录同账户也能直接使用。
+async fn get_llm_config(headers: &HeaderMap, state: &SharedState, uid: Uuid) -> LlmConfig {
+    // 账户持久化的设置（空字符串视为未设置）。
+    let (stored_key, stored_model, stored_base): (String, String, String) =
+        sqlx::query_as("SELECT llm_api_key, llm_model, llm_base_url FROM users WHERE id=$1")
+            .bind(uid)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+
+    let header = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string())
+            .filter(|s| !s.is_empty())
+    };
+    let non_empty = |s: String| if s.is_empty() { None } else { Some(s) };
+
+    let base_url = header("x-llm-base-url")
+        .or_else(|| non_empty(stored_base))
         .unwrap_or_else(|| state.config.llm_base_url.clone());
-
-    let api_key = headers
-        .get("x-llm-key")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .filter(|s| !s.is_empty())
+    let api_key = header("x-llm-key")
+        .or_else(|| non_empty(stored_key))
         .unwrap_or_else(|| state.config.llm_api_key.clone());
-
-    let model = headers
-        .get("x-llm-model")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .filter(|s| !s.is_empty())
+    let model = header("x-llm-model")
+        .or_else(|| non_empty(stored_model))
         .unwrap_or_else(|| state.config.llm_model.clone());
 
     LlmConfig { base_url, api_key, model }
@@ -128,12 +139,12 @@ pub async fn parse_task(
     headers: HeaderMap,
     Json(body): Json<ParseReq>,
 ) -> (StatusCode, Json<ApiResponse>) {
-    let _uid = match current_user(&headers, &state).await {
+    let uid = match current_user(&headers, &state).await {
         Ok(u) => u,
         Err(e) => return e,
     };
 
-    let cfg = get_llm_config(&headers, &state);
+    let cfg = get_llm_config(&headers, &state, uid).await;
     let today = crate::util::beijing_today().format("%Y-%m-%d").to_string();
 
     let system = format!(
@@ -193,12 +204,12 @@ pub async fn brain_dump(
     headers: HeaderMap,
     Json(body): Json<BrainDumpReq>,
 ) -> (StatusCode, Json<ApiResponse>) {
-    let _uid = match current_user(&headers, &state).await {
+    let uid = match current_user(&headers, &state).await {
         Ok(u) => u,
         Err(e) => return e,
     };
 
-    let cfg = get_llm_config(&headers, &state);
+    let cfg = get_llm_config(&headers, &state, uid).await;
     let today = crate::util::beijing_today().format("%Y-%m-%d").to_string();
 
     let system = format!(
@@ -240,12 +251,12 @@ pub async fn rewrite_task(
     headers: HeaderMap,
     Json(body): Json<RewriteReq>,
 ) -> (StatusCode, Json<ApiResponse>) {
-    let _uid = match current_user(&headers, &state).await {
+    let uid = match current_user(&headers, &state).await {
         Ok(u) => u,
         Err(e) => return e,
     };
 
-    let cfg = get_llm_config(&headers, &state);
+    let cfg = get_llm_config(&headers, &state, uid).await;
 
     let system = r#"你是GTD任务改写助手。
 判断任务是否为"含糊、不可执行"的大目标，并输出严格JSON：
@@ -281,12 +292,12 @@ pub async fn decompose_task(
     headers: HeaderMap,
     Json(body): Json<DecomposeReq>,
 ) -> (StatusCode, Json<ApiResponse>) {
-    let _uid = match current_user(&headers, &state).await {
+    let uid = match current_user(&headers, &state).await {
         Ok(u) => u,
         Err(e) => return e,
     };
 
-    let cfg = get_llm_config(&headers, &state);
+    let cfg = get_llm_config(&headers, &state, uid).await;
     let today = crate::util::beijing_today().format("%Y-%m-%d").to_string();
 
     let system = format!(
@@ -347,7 +358,7 @@ pub async fn semantic_search(
         return (StatusCode::OK, ok("检索完成", json!({"items": [], "explanation": "暂无任务"})));
     }
 
-    let cfg = get_llm_config(&headers, &state);
+    let cfg = get_llm_config(&headers, &state, uid).await;
     let today = crate::util::beijing_today().format("%Y-%m-%d").to_string();
 
     // Serialize tasks as context
@@ -442,7 +453,7 @@ pub async fn morning_recommend(
         .await
         .unwrap_or_else(|_| "温暖鼓励型".into());
 
-    let cfg = get_llm_config(&headers, &state);
+    let cfg = get_llm_config(&headers, &state, uid).await;
     let today = crate::util::beijing_today().format("%Y-%m-%d").to_string();
 
     let tasks_json = serde_json::to_string(
@@ -535,7 +546,7 @@ pub async fn evening_summary(
         .await
         .unwrap_or_else(|_| "温暖鼓励型".into());
 
-    let cfg = get_llm_config(&headers, &state);
+    let cfg = get_llm_config(&headers, &state, uid).await;
     let today = crate::util::beijing_today().format("%Y-%m-%d").to_string();
 
     let context = json!({

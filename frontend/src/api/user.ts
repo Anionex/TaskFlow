@@ -11,6 +11,6 @@ export const userApi = {
 
   getSettings: () => api.get<UserSettings>('/user/settings'),
 
-  updateSettings: (settings: UserSettings) =>
+  updateSettings: (settings: Partial<UserSettings>) =>
     api.put('/user/settings', settings),
 }

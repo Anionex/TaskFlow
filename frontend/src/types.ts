@@ -91,6 +91,10 @@ export interface UserStats {
 
 export interface UserSettings {
   summary_tone: Tone
+  // 大模型设置：账户级持久化，跨设备同步（空字符串=走服务端默认）
+  llm_api_key?: string
+  llm_model?: string
+  llm_base_url?: string
 }
 
 export interface Template {

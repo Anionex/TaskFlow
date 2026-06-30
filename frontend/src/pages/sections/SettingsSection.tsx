@@ -81,7 +81,21 @@ export function SettingsSection() {
     const res = await userApi.getSettings()
     if (res.success && res.data) {
       setTone(res.data.summary_tone)
+      // 大模型设置以账户为准（跨设备同步），并镜像到 localStorage 供请求头快路径使用。
+      const key = res.data.llm_api_key ?? ''
+      const model = res.data.llm_model ?? ''
+      const base = res.data.llm_base_url ?? ''
+      setLlmKey(key)
+      setLlmModel(model)
+      setLlmBase(base)
+      mirrorLlmToLocalStorage(key, model, base)
     }
+  }
+
+  function mirrorLlmToLocalStorage(key: string, model: string, base: string) {
+    if (key) localStorage.setItem('llm_key', key); else localStorage.removeItem('llm_key')
+    if (model) localStorage.setItem('llm_model', model); else localStorage.removeItem('llm_model')
+    if (base) localStorage.setItem('llm_base_url', base); else localStorage.removeItem('llm_base_url')
   }
 
   async function handleChangePwd() {
@@ -113,12 +127,26 @@ export function SettingsSection() {
     }
   }
 
-  function saveLlm() {
-    localStorage.setItem('llm_key', llmKey)
-    localStorage.setItem('llm_model', llmModel)
-    if (llmBase) localStorage.setItem('llm_base_url', llmBase)
-    else localStorage.removeItem('llm_base_url')
-    addToast({ type: 'success', message: '大模型设置已保存' })
+  const [llmLoading, setLlmLoading] = useState(false)
+
+  async function saveLlm() {
+    setLlmLoading(true)
+    try {
+      const res = await userApi.updateSettings({
+        llm_api_key: llmKey.trim(),
+        llm_model: llmModel.trim(),
+        llm_base_url: llmBase.trim(),
+      })
+      if (res.success) {
+        // 账户保存成功后镜像到本地，供请求头快路径直接使用。
+        mirrorLlmToLocalStorage(llmKey.trim(), llmModel.trim(), llmBase.trim())
+        addToast({ type: 'success', message: '大模型设置已保存（已同步到账户）' })
+      } else {
+        addToast({ type: 'error', message: res.message || '保存失败' })
+      }
+    } finally {
+      setLlmLoading(false)
+    }
   }
 
   async function handleExport() {
@@ -224,7 +252,7 @@ export function SettingsSection() {
 
       {/* LLM */}
       <Section title="大模型设置">
-        <Field label="API Key" hint="填入你的大模型 API Key，仅存于本地浏览器">
+        <Field label="API Key" hint="填入你的大模型 API Key，保存后同步到账户，换设备登录即可直接使用">
           <div style={{ position: 'relative' }}>
             <input type={showKey ? 'text' : 'password'} value={llmKey} onChange={(e) => setLlmKey(e.target.value)} placeholder="sk-..." style={inputStyle} onFocus={focusIn} onBlur={focusOut} />
             <button type="button" onClick={() => setShowKey(!showKey)} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex' }}>
@@ -245,13 +273,17 @@ export function SettingsSection() {
         </Field>
         <button
           onClick={saveLlm}
+          disabled={llmLoading}
           style={{
+            display: 'flex', alignItems: 'center', gap: '5px',
             background: 'var(--accent)', border: '1px solid var(--accent)',
             borderRadius: 'var(--radius-pill)', padding: '7px 18px',
             fontSize: 'var(--text-sm)', color: 'var(--on-accent)',
-            cursor: 'pointer', fontFamily: 'var(--font-sans)',
+            cursor: llmLoading ? 'not-allowed' : 'pointer',
+            opacity: llmLoading ? 0.7 : 1, fontFamily: 'var(--font-sans)',
           }}
         >
+          {llmLoading && <Spinner size={12} />}
           保存大模型设置
         </button>
       </Section>

@@ -851,6 +851,42 @@ async fn user_profile_stats_settings() {
         .await
         .unwrap();
     assert!(!r["success"].as_bool().unwrap(), "invalid tone should fail");
+
+    // 大模型设置：账户级持久化（跨设备同步）。保存后 GET 应原样返回，
+    // 模拟"换一台电脑/浏览器"重新拉取设置仍可用。
+    let r: Value = c
+        .http
+        .put(c.url("/user/settings"))
+        .headers(h.clone())
+        .json(&json!({
+            "llm_api_key": "sk-test-persist",
+            "llm_model": "deepseek-chat",
+            "llm_base_url": "https://api.deepseek.com"
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(r["success"].as_bool().unwrap(), "save llm settings: {r}");
+
+    let r: Value = c
+        .http
+        .get(c.url("/user/settings"))
+        .headers(h.clone())
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(r["data"]["llm_api_key"].as_str().unwrap(), "sk-test-persist");
+    assert_eq!(r["data"]["llm_model"].as_str().unwrap(), "deepseek-chat");
+    assert_eq!(
+        r["data"]["llm_base_url"].as_str().unwrap(),
+        "https://api.deepseek.com"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
