@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { AppShell, type SectionId } from '@/components/layout/AppShell'
 import { TodaySection } from './sections/TodaySection'
 import { TasksSection } from './sections/TasksSection'
-import { SearchSection } from './sections/SearchSection'
 import { TemplatesSection } from './sections/TemplatesSection'
 import { StatsSection } from './sections/StatsSection'
 import { RecycleSection } from './sections/RecycleSection'
@@ -15,7 +14,6 @@ export function AppPage() {
     switch (section) {
       case 'today':     return <TodaySection />
       case 'tasks':     return <TasksSection />
-      case 'search':    return <SearchSection />
       case 'templates': return <TemplatesSection />
       case 'stats':     return <StatsSection />
       case 'recycle':   return <RecycleSection />

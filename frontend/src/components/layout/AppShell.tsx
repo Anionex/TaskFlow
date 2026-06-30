@@ -2,14 +2,14 @@ import { ReactNode, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Sun, Leaf, Moon, LogOut, ChevronRight, Menu, X,
-  LayoutDashboard, CheckSquare, Search, Layers, BarChart2, Trash2, Settings
+  LayoutDashboard, CheckSquare, Layers, BarChart2, Trash2, Settings
 } from 'lucide-react'
 import { useAppStore } from '@/store'
 import { authApi } from '@/api/auth'
 import { useIsMobile } from '@/lib/useIsMobile'
 import { Logo } from '@/components/ui/Logo'
 
-export type SectionId = 'today' | 'tasks' | 'search' | 'templates' | 'stats' | 'recycle' | 'settings'
+export type SectionId = 'today' | 'tasks' | 'templates' | 'stats' | 'recycle' | 'settings'
 
 interface NavItem {
   id: SectionId
@@ -20,8 +20,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { id: 'today',     label: '今日',   icon: <LayoutDashboard size={15} aria-hidden /> },
   { id: 'tasks',     label: '任务',   icon: <CheckSquare size={15} aria-hidden /> },
-  { id: 'search',    label: '检索',   icon: <Search size={15} aria-hidden /> },
-  { id: 'templates', label: '模板',   icon: <Layers size={15} aria-hidden /> },
+  { id: 'templates', label: '习惯',   icon: <Layers size={15} aria-hidden /> },
   { id: 'stats',     label: '统计',   icon: <BarChart2 size={15} aria-hidden /> },
   { id: 'recycle',   label: '回收站', icon: <Trash2 size={15} aria-hidden /> },
   { id: 'settings',  label: '设置',   icon: <Settings size={15} aria-hidden /> },
@@ -90,7 +89,8 @@ export function AppShell({ active, onNavigate, children }: Props) {
       }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--surface-0)' }}>
+    // 整体锁定一屏高、外层不滚动：侧栏固定，只有右侧 main 内部滚动（item 4）。
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--surface-0)' }}>
       {/* Mobile top bar */}
       {isMobile && (
         <header style={{
