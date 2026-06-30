@@ -9,7 +9,7 @@ const PLATFORMS = [
     os: 'macOS',
     arch: 'Apple 芯片 (Apple Silicon)',
     file: `TaskFlow_${VERSION}_aarch64.dmg`,
-    note: '首次打开：右键点按 App 图标 → 选「打开」。本包为 ad-hoc 签名、未经 Apple 公证，直接双击会被拦。仅支持 Apple 芯片（M 系列）。',
+    note: '把 App 拖到「应用程序」后，若提示"已损坏/无法打开"（因未经 Apple 公证），打开「终端」执行 xattr -cr /Applications/TaskFlow.app 去除隔离标记，再双击打开即可（可把 App 拖进终端自动补全路径）。仅支持 Apple 芯片（M 系列）。',
   },
   {
     os: 'Windows',
