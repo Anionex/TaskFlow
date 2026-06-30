@@ -1517,6 +1517,17 @@ async fn agent_write_requires_confirmation_then_commits() {
 
     // 现在应已写库
     assert_eq!(count_tasks(&c, &sid).await, before + 1, "task must exist after approval");
+
+    // 幂等闸：用确认后的历史再次发同一 decision，不应重复写库（该 tool_call 已应答、不再悬空）。
+    let history2 = r2["data"]["messages"].clone();
+    let r3: Value = c.http
+        .post(c.url("/ai/agent"))
+        .headers(ai_headers(&sid, &mock_url))
+        .json(&json!({"messages": history2, "decision": {"tool_call_id": tc_id, "approved": true}}))
+        .send().await.unwrap()
+        .json().await.unwrap();
+    assert!(r3["success"].as_bool().unwrap(), "{r3}");
+    assert_eq!(count_tasks(&c, &sid).await, before + 1, "re-approve must NOT double-write");
 }
 
 /// 拒绝路径：approve=false 时不写库，模型据拒绝继续对话。

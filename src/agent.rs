@@ -246,12 +246,54 @@ fn dangling_tool_call_ids(messages: &[Value]) -> Vec<String> {
 
 // ── 日期/字段解析 ──────────────────────────────────────────────────────────
 
+/// 宽松解析模型给的时间字符串：RFC3339（带时区）/ 纯日期 / "日期 时:分[:秒]"。
+/// 纯日期与无时区的形式按北京时区(UTC+8)解释，与系统其它处口径一致。
+fn parse_dt_str(s: &str) -> Option<DateTime<Utc>> {
+    use chrono::{NaiveDate, NaiveDateTime, TimeZone};
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    if let Ok(d) = DateTime::parse_from_rfc3339(s) {
+        return Some(d.with_timezone(&Utc));
+    }
+    let off = crate::util::beijing_offset();
+    if let Ok(date) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+        let ndt = date.and_hms_opt(0, 0, 0)?;
+        return off.from_local_datetime(&ndt).single().map(|d| d.with_timezone(&Utc));
+    }
+    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"] {
+        if let Ok(ndt) = NaiveDateTime::parse_from_str(s, fmt) {
+            return off.from_local_datetime(&ndt).single().map(|d| d.with_timezone(&Utc));
+        }
+    }
+    None
+}
+
 fn parse_dt(v: Option<&Value>) -> Option<DateTime<Utc>> {
     match v {
-        Some(Value::String(s)) if !s.is_empty() => DateTime::parse_from_rfc3339(s)
-            .ok()
-            .map(|d| d.with_timezone(&Utc)),
+        Some(Value::String(s)) => parse_dt_str(s),
         _ => None,
+    }
+}
+
+/// 更新可空日期字段时三态语义：显式 null/空串=清空；可解析字符串=设置；
+/// 不可解析的非空字符串=保持原值（绝不因解析失败而误清空，避免与预览不一致）。
+enum DateUpdate {
+    Clear,
+    Set(DateTime<Utc>),
+    Leave,
+}
+
+fn resolve_date_update(v: &Value) -> DateUpdate {
+    match v {
+        Value::Null => DateUpdate::Clear,
+        Value::String(s) if s.trim().is_empty() => DateUpdate::Clear,
+        Value::String(s) => match parse_dt_str(s) {
+            Some(d) => DateUpdate::Set(d),
+            None => DateUpdate::Leave,
+        },
+        _ => DateUpdate::Leave,
     }
 }
 
@@ -296,11 +338,12 @@ async fn exec_list_tasks(state: &SharedState, uid: Uuid, args: &Value) -> Result
     };
     let category = args.get("category").and_then(|v| v.as_str()).unwrap_or("");
     let search = args.get("search").and_then(|v| v.as_str()).unwrap_or("");
+    // 上限收紧到 150：避免一次拉取把对话历史撑过体量护栏而卡死后续轮次。
     let limit = args
         .get("limit")
         .and_then(|v| v.as_i64())
-        .unwrap_or(100)
-        .clamp(1, 300);
+        .unwrap_or(80)
+        .clamp(1, 150);
 
     let status_clause = status_filter_sql(status, "");
     let pattern = if search.is_empty() {
@@ -423,12 +466,21 @@ async fn exec_update(state: &SharedState, uid: Uuid, args: &Value) -> Result<Val
     if let Some(s) = args.get("star_rating").and_then(|v| v.as_i64()) {
         task.star_rating = clamp_star_rating(s as i16);
     }
-    // deadline / start_date：键存在=应用；显式 null=清空；字符串=设置。键缺省=保持。
+    // deadline / start_date：键缺省=保持；null/空串=清空；可解析=设置；
+    // 不可解析的字符串=保持原值（不误清空，且与确认卡所示一致）。
     if let Some(v) = args.get("deadline") {
-        task.deadline = parse_dt(Some(v)); // null 或非法 → None（清空）
+        match resolve_date_update(v) {
+            DateUpdate::Clear => task.deadline = None,
+            DateUpdate::Set(d) => task.deadline = Some(d),
+            DateUpdate::Leave => {}
+        }
     }
     if let Some(v) = args.get("start_date") {
-        task.start_date = parse_dt(Some(v));
+        match resolve_date_update(v) {
+            DateUpdate::Clear => task.start_date = None,
+            DateUpdate::Set(d) => task.start_date = Some(d),
+            DateUpdate::Leave => {}
+        }
     }
     let completed_at = match args.get("completed").and_then(|v| v.as_bool()) {
         Some(c) => {
@@ -539,6 +591,13 @@ fn propose_summary(name: &str, args: &Value, current: Option<&Value>) -> String 
                     format!("截止→{}", v.as_str().unwrap_or(""))
                 });
             }
+            if let Some(v) = args.get("start_date") {
+                changes.push(if v.is_null() {
+                    "清空开始时间".into()
+                } else {
+                    format!("开始→{}", v.as_str().unwrap_or(""))
+                });
+            }
             if let Some(c) = args.get("completed").and_then(|v| v.as_bool()) {
                 changes.push(if c { "标记为完成".into() } else { "标记为未完成".into() });
             }
@@ -568,13 +627,16 @@ pub async fn agent_chat(
         Err(e) => return e,
     };
 
-    // 体量护栏
-    if req.messages.len() > MAX_MESSAGES {
-        return (StatusCode::BAD_REQUEST, err("对话过长，请新开一段对话"));
-    }
-    let approx: usize = req.messages.iter().map(|m| m.to_string().len()).sum();
-    if approx > MAX_CHARS {
-        return (StatusCode::BAD_REQUEST, err("对话过长，请新开一段对话"));
+    // 体量护栏。注意：仅在"发起新消息"时拦截；确认/拒绝(decision)必须始终放行，
+    // 否则一条很大的历史会把已经弹出的待确认写操作永久卡死、无法接受或拒绝。
+    if req.decision.is_none() {
+        if req.messages.len() > MAX_MESSAGES {
+            return (StatusCode::BAD_REQUEST, err("对话过长，请新开一段对话"));
+        }
+        let approx: usize = req.messages.iter().map(|m| m.to_string().len()).sum();
+        if approx > MAX_CHARS {
+            return (StatusCode::BAD_REQUEST, err("对话过长，请新开一段对话"));
+        }
     }
 
     let cfg = get_llm_config(&headers, &state, uid).await;
@@ -591,9 +653,31 @@ pub async fn agent_chat(
 
     // 1) 先落地上一条 pending 的确认/拒绝（若有）
     if let Some(dec) = req.decision {
-        let Some((name, args)) = find_tool_call(&msgs, &dec.tool_call_id) else {
-            return (StatusCode::BAD_REQUEST, err("找不到待确认的操作"));
-        };
+        // 安全闸：只允许落地"当前真正悬空(未应答)的写工具调用"。
+        // 这同时挡住两类问题：① 客户端伪造历史里塞一个从未被提案的 tool_call 直接 approve；
+        // ② 写已执行(已应答)后用户/前端重试同一 decision 造成重复写——此时它已不在悬空集合里。
+        let dangling = dangling_tool_call_ids(&msgs);
+        let is_pending_write = dangling.contains(&dec.tool_call_id)
+            && find_tool_call(&msgs, &dec.tool_call_id)
+                .map(|(name, _)| is_write_tool(&name))
+                .unwrap_or(false);
+        if !is_pending_write {
+            // 已处理过或本就不该执行：当作无操作，温和地继续，不重复落库。
+            let out: Vec<Value> = msgs.into_iter().skip(1).collect();
+            return (
+                StatusCode::OK,
+                ok(
+                    "ok",
+                    json!({
+                        "messages": out,
+                        "steps": [],
+                        "reply": "这个操作似乎已经处理过了，我们继续吧。",
+                        "pending": Value::Null,
+                    }),
+                ),
+            );
+        }
+        let (name, args) = find_tool_call(&msgs, &dec.tool_call_id).expect("checked above");
         if dec.approved {
             match exec_write(&state, uid, &name, &args).await {
                 Ok(v) => {
@@ -635,7 +719,13 @@ pub async fn agent_chat(
             Ok(m) => m,
             Err(e) => {
                 tracing::warn!("agent_chat LLM error: {e}");
-                return (StatusCode::OK, err("智能服务暂时不可用，请稍后再试"));
+                // 关键：不要直接丢弃本轮进度。若此轮已落地了一次写操作（decision 已执行），
+                // 直接返回错误会让前端保留旧历史与待确认卡，用户重试→重复写。
+                // 改为以一条兜底回复正常结束本轮，让前端推进历史、清掉 pending。
+                let fallback = "智能服务暂时不稳定，这一步没能完成。你已确认的改动（如有）已经生效；可以稍后再试或换个说法。".to_string();
+                msgs.push(json!({"role": "assistant", "content": fallback}));
+                reply = Some(fallback);
+                break;
             }
         };
         msgs.push(assistant.clone());
@@ -824,5 +914,20 @@ mod tests {
         assert!(parse_dt(Some(&json!(""))).is_none());
         assert!(parse_dt(None).is_none());
         assert!(parse_dt(Some(&json!("2026-07-01T18:00:00+08:00"))).is_some());
+        // 纯日期 / "日期 时:分" 也应被接受（按北京时区解释）
+        assert!(parse_dt(Some(&json!("2026-07-10"))).is_some());
+        assert!(parse_dt(Some(&json!("2026-07-10 09:30"))).is_some());
+        assert!(parse_dt_str("not-a-date").is_none());
+    }
+
+    #[test]
+    fn resolve_date_update_three_states() {
+        // 显式 null / 空串 → 清空
+        assert!(matches!(resolve_date_update(&Value::Null), DateUpdate::Clear));
+        assert!(matches!(resolve_date_update(&json!("  ")), DateUpdate::Clear));
+        // 可解析 → 设置
+        assert!(matches!(resolve_date_update(&json!("2026-07-10")), DateUpdate::Set(_)));
+        // 不可解析的非空字符串 → 保持（绝不误清空）
+        assert!(matches!(resolve_date_update(&json!("下周三")), DateUpdate::Leave));
     }
 }
