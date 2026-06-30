@@ -1367,3 +1367,187 @@ async fn health_check_returns_ok() {
         .unwrap();
     assert!(r["success"].as_bool().unwrap(), "health: {r}");
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Agent 模式测试（带工具的多轮 Mock LLM）
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// 启动一个"按调用次序返回不同响应"的 Mock LLM。
+/// 用于模拟 agent 循环：第 1 次返回工具调用，第 2 次返回最终答复。
+async fn spawn_mock_llm_sequence(responses: Vec<serde_json::Value>) -> String {
+    use axum::{response::IntoResponse, routing::post, Router};
+    use std::sync::{atomic::{AtomicUsize, Ordering}, Arc};
+
+    let seq = Arc::new(responses);
+    let counter = Arc::new(AtomicUsize::new(0));
+
+    let app = Router::new().route(
+        "/v1/chat/completions",
+        post(move || {
+            let seq = seq.clone();
+            let counter = counter.clone();
+            async move {
+                let i = counter.fetch_add(1, Ordering::SeqCst);
+                let idx = i.min(seq.len() - 1); // 超出后停在最后一条
+                axum::response::Json(seq[idx].clone()).into_response()
+            }
+        }),
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    format!("http://127.0.0.1:{}", addr.port())
+}
+
+fn tool_call_msg(id: &str, name: &str, args: &str) -> serde_json::Value {
+    json!({
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "id": id,
+                    "type": "function",
+                    "function": {"name": name, "arguments": args}
+                }]
+            }
+        }]
+    })
+}
+
+fn final_msg(text: &str) -> serde_json::Value {
+    json!({"choices": [{"message": {"role": "assistant", "content": text}}]})
+}
+
+/// 读工具路径：模型先 list_tasks，拿到结果后给出最终答复；不应产生 pending。
+#[tokio::test]
+async fn agent_read_tool_roundtrip() {
+    let mut c = TestClient::new().await;
+    let phone = unique_phone();
+    let sid = c.register_and_login(&phone, "pass1234").await;
+
+    // 准备一条任务
+    c.http
+        .post(c.url("/tasks"))
+        .headers(c.session_header(&sid))
+        .json(&json!({"title": "周一写周报", "category": "工作"}))
+        .send().await.unwrap();
+
+    let mock_url = spawn_mock_llm_sequence(vec![
+        tool_call_msg("call_1", "list_tasks", "{\"status\":\"all\"}"),
+        final_msg("你共有 1 条任务，关键词集中在「周报」。"),
+    ]).await;
+    let h = ai_headers(&sid, &mock_url);
+
+    let r: Value = c.http
+        .post(c.url("/ai/agent"))
+        .headers(h)
+        .json(&json!({"messages": [], "user_input": "看看我的任务关键词"}))
+        .send().await.unwrap()
+        .json().await.unwrap();
+
+    assert!(r["success"].as_bool().unwrap(), "agent should succeed: {r}");
+    let data = &r["data"];
+    assert!(data["pending"].is_null(), "read path must not produce pending: {data}");
+    assert_eq!(data["reply"].as_str().unwrap(), "你共有 1 条任务，关键词集中在「周报」。");
+    // steps 里应有一次成功的 list_tasks 工具调用
+    let steps = data["steps"].as_array().unwrap();
+    assert!(steps.iter().any(|s| s["kind"] == "tool" && s["name"] == "list_tasks" && s["ok"] == true),
+        "expected a successful list_tasks step: {data}");
+    // messages 回传里不含 system（第一条不应是 system）
+    let msgs = data["messages"].as_array().unwrap();
+    assert!(msgs.first().map(|m| m["role"] != "system").unwrap_or(true), "system must be stripped: {data}");
+}
+
+/// 写工具确认闸：模型提出 create_task → 返回 pending 且**未写库**；
+/// 用户 approve 后再次请求 → 真正写库。
+#[tokio::test]
+async fn agent_write_requires_confirmation_then_commits() {
+    let mut c = TestClient::new().await;
+    let phone = unique_phone();
+    let sid = c.register_and_login(&phone, "pass1234").await;
+
+    async fn count_tasks(c: &TestClient, sid: &str) -> i64 {
+        let v: Value = c.http.get(c.url("/tasks")).headers(c.session_header(sid))
+            .send().await.unwrap().json().await.unwrap();
+        v["data"]["total"].as_i64().unwrap_or(0)
+    }
+
+    let before = count_tasks(&c, &sid).await;
+
+    // 第 1 次：提出 create_task；第 2 次（approve 后）：最终答复
+    let mock_url = spawn_mock_llm_sequence(vec![
+        tool_call_msg("call_w", "create_task", "{\"title\":\"买牛奶\",\"category\":\"生活\",\"star_rating\":2}"),
+        final_msg("好的，已为你新建「买牛奶」。"),
+    ]).await;
+    let h = ai_headers(&sid, &mock_url);
+
+    // 提案阶段
+    let r1: Value = c.http
+        .post(c.url("/ai/agent"))
+        .headers(h.clone())
+        .json(&json!({"messages": [], "user_input": "帮我加个买牛奶的生活任务"}))
+        .send().await.unwrap()
+        .json().await.unwrap();
+    assert!(r1["success"].as_bool().unwrap(), "{r1}");
+    let pending = &r1["data"]["pending"];
+    assert!(!pending.is_null(), "create should produce a pending confirmation: {r1}");
+    assert_eq!(pending["tool"], "create_task");
+    let tc_id = pending["tool_call_id"].as_str().unwrap().to_string();
+
+    // 关键安全属性：确认前未写库
+    assert_eq!(count_tasks(&c, &sid).await, before, "must NOT write before confirmation");
+
+    // 回传的 messages 作为下一轮历史
+    let history = r1["data"]["messages"].clone();
+
+    // 确认阶段
+    let r2: Value = c.http
+        .post(c.url("/ai/agent"))
+        .headers(h)
+        .json(&json!({"messages": history, "decision": {"tool_call_id": tc_id, "approved": true}}))
+        .send().await.unwrap()
+        .json().await.unwrap();
+    assert!(r2["success"].as_bool().unwrap(), "{r2}");
+    assert!(r2["data"]["pending"].is_null(), "no pending after commit: {r2}");
+    assert_eq!(r2["data"]["reply"].as_str().unwrap(), "好的，已为你新建「买牛奶」。");
+
+    // 现在应已写库
+    assert_eq!(count_tasks(&c, &sid).await, before + 1, "task must exist after approval");
+}
+
+/// 拒绝路径：approve=false 时不写库，模型据拒绝继续对话。
+#[tokio::test]
+async fn agent_write_rejected_does_not_commit() {
+    let mut c = TestClient::new().await;
+    let phone = unique_phone();
+    let sid = c.register_and_login(&phone, "pass1234").await;
+
+    let before: Value = c.http.get(c.url("/tasks")).headers(c.session_header(&sid))
+        .send().await.unwrap().json().await.unwrap();
+    let count_before = before["data"]["total"].as_i64().unwrap_or(0);
+
+    let mock_url = spawn_mock_llm_sequence(vec![
+        tool_call_msg("call_d", "create_task", "{\"title\":\"不想要的任务\"}"),
+        final_msg("好的，已取消。你希望怎么调整？"),
+    ]).await;
+    let h = ai_headers(&sid, &mock_url);
+
+    let r1: Value = c.http.post(c.url("/ai/agent")).headers(h.clone())
+        .json(&json!({"messages": [], "user_input": "加个任务"}))
+        .send().await.unwrap().json().await.unwrap();
+    let tc_id = r1["data"]["pending"]["tool_call_id"].as_str().unwrap().to_string();
+    let history = r1["data"]["messages"].clone();
+
+    let r2: Value = c.http.post(c.url("/ai/agent")).headers(h)
+        .json(&json!({"messages": history, "decision": {"tool_call_id": tc_id, "approved": false}}))
+        .send().await.unwrap().json().await.unwrap();
+    assert!(r2["success"].as_bool().unwrap(), "{r2}");
+
+    let after: Value = c.http.get(c.url("/tasks")).headers(c.session_header(&sid))
+        .send().await.unwrap().json().await.unwrap();
+    assert_eq!(after["data"]["total"].as_i64().unwrap_or(0), count_before, "reject must not write");
+}

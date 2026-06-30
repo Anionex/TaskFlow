@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod ai;
 pub mod auth;
 pub mod checkin;
@@ -113,6 +114,8 @@ pub fn build_app(pool: sqlx::PgPool, config: TestConfig) -> Router {
         .route("/api/ai/search", post(ai::semantic_search))
         .route("/api/ai/morning", get(ai::morning_recommend))
         .route("/api/ai/evening", get(ai::evening_summary))
+        // ── Agent 模式（多轮 + 工具读写 + 确认）
+        .route("/api/ai/agent", post(agent::agent_chat))
         .with_state(state)
         .layer(CorsLayer::permissive())
 }

@@ -13,10 +13,10 @@ use crate::state::SharedState;
 
 // ── LLM 客户端 ─────────────────────────────────────────────────────────────
 
-struct LlmConfig {
-    base_url: String,
-    api_key: String,
-    model: String,
+pub(crate) struct LlmConfig {
+    pub base_url: String,
+    pub api_key: String,
+    pub model: String,
 }
 
 /// 自带 key 时 base/model 的兜底（设置页申请 key 的入口就是 DeepSeek 官方）。
@@ -53,7 +53,7 @@ fn resolve_llm(
 
 /// 解析大模型配置。每个用户显式值的来源优先级：请求头(本机覆盖) → 账户已保存设置(跨设备)。
 /// 账户设置存于 users 表，使得在 A 设备保存后 B 设备登录同账户也能直接使用。
-async fn get_llm_config(headers: &HeaderMap, state: &SharedState, uid: Uuid) -> LlmConfig {
+pub(crate) async fn get_llm_config(headers: &HeaderMap, state: &SharedState, uid: Uuid) -> LlmConfig {
     // 账户持久化的设置（空字符串视为未设置）。
     let (stored_key, stored_model, stored_base): (String, String, String) =
         sqlx::query_as("SELECT llm_api_key, llm_model, llm_base_url FROM users WHERE id=$1")
@@ -132,6 +132,52 @@ async fn call_llm(
     Ok(content)
 }
 
+/// 多轮带工具的对话补全（Agent 模式用）。与 `call_llm` 不同：
+/// 传入完整 messages 数组 + tools 定义，**不**强制 json_object，返回模型这一步的
+/// 完整 assistant message（含可能的 tool_calls / reasoning_content），由调用方驱动循环。
+pub(crate) async fn chat_with_tools(
+    cfg: &LlmConfig,
+    messages: &[Value],
+    tools: &Value,
+) -> Result<Value, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(90))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let url = format!("{}/chat/completions", cfg.base_url.trim_end_matches('/'));
+
+    let body = json!({
+        "model": cfg.model,
+        "messages": messages,
+        "tools": tools,
+        "tool_choice": "auto",
+        "max_tokens": 1500,
+        "temperature": 0
+    });
+
+    let resp = client
+        .post(&url)
+        .bearer_auth(&cfg.api_key)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("LLM HTTP {status}: {text}"));
+    }
+
+    let data: Value = resp.json().await.map_err(|e| e.to_string())?;
+    let msg = data["choices"][0]["message"].clone();
+    if msg.is_null() {
+        return Err("no message in LLM response".into());
+    }
+    Ok(msg)
+}
+
 fn ai_error() -> Json<ApiResponse> {
     err("智能服务暂时不可用，请手动填写")
 }
@@ -139,7 +185,7 @@ fn ai_error() -> Json<ApiResponse> {
 /// 轻量的"用户当前在做什么"梗概，注入到创建/拆解类提示词，
 /// 帮助模型避免与既有任务重复、保持分类与重要度风格一致。
 /// 只取概要（最近若干条未完成任务标题 + 分类分布），不塞全量任务，控制 token 与跑偏风险。
-async fn user_context_brief(state: &SharedState, uid: Uuid) -> String {
+pub(crate) async fn user_context_brief(state: &SharedState, uid: Uuid) -> String {
     let tasks: Vec<(String, String)> = sqlx::query_as(
         "SELECT title, category FROM tasks \
          WHERE user_id=$1 AND deleted_at IS NULL AND completed=false \
