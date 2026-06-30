@@ -2,6 +2,7 @@ use axum::{
     extract::{Json, State},
     http::{HeaderMap, StatusCode},
 };
+use chrono::Datelike;
 use serde::Deserialize;
 
 use crate::auth::current_user;
@@ -62,18 +63,38 @@ pub async fn get_stats(
     .await
     .unwrap_or((0, 0, 0, 0));
 
-    // Monthly completed in the last 12 months
-    let monthly: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT to_char(completed_at, 'YYYY-MM') as month, COUNT(*) \
+    // 近 12 个自然月的完成量（按北京月份分桶，缺月补零，保证柱状图 12 根连续柱）
+    let rows: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT to_char(completed_at + INTERVAL '8 hours', 'YYYY-MM') as month, COUNT(*) \
          FROM tasks \
-         WHERE user_id=$1 AND completed=true AND deleted_at IS NULL \
-           AND completed_at >= (now() - INTERVAL '12 months') \
-         GROUP BY month ORDER BY month",
+         WHERE user_id=$1 AND completed=true AND deleted_at IS NULL AND completed_at IS NOT NULL \
+           AND completed_at >= (now() - INTERVAL '13 months') \
+         GROUP BY month",
     )
     .bind(uid)
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
+
+    let counts: std::collections::HashMap<String, i64> = rows.into_iter().collect();
+    let today = crate::util::beijing_today();
+    // 从 11 个月前的月份开始，到本月，共 12 个标签
+    let (mut y, mut m) = (today.year(), today.month() as i32 - 11);
+    while m <= 0 {
+        m += 12;
+        y -= 1;
+    }
+    let mut monthly: Vec<(String, i64)> = Vec::with_capacity(12);
+    for _ in 0..12 {
+        let key = format!("{y:04}-{m:02}");
+        let c = counts.get(&key).copied().unwrap_or(0);
+        monthly.push((key, c));
+        m += 1;
+        if m > 12 {
+            m = 1;
+            y += 1;
+        }
+    }
 
     (
         StatusCode::OK,

@@ -36,14 +36,25 @@ pub struct CreateTaskReq {
     pub sort_order: Option<i32>,
 }
 
+/// 区分"字段缺省"(None) 与"显式传 null"(Some(None))，用于可清空的日期字段。
+fn double_option<'de, D, T>(d: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    Ok(Some(Option::deserialize(d)?))
+}
+
 #[derive(Deserialize)]
 pub struct UpdateTaskReq {
     pub title: Option<String>,
     pub description: Option<String>,
     pub category: Option<String>,
     pub star_rating: Option<i16>,
-    pub start_date: Option<chrono::DateTime<Utc>>,
-    pub deadline: Option<chrono::DateTime<Utc>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub start_date: Option<Option<chrono::DateTime<Utc>>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub deadline: Option<Option<chrono::DateTime<Utc>>>,
     pub completed: Option<bool>,
     pub sort_order: Option<i32>,
 }
@@ -231,19 +242,21 @@ pub async fn list_tasks(
     let mut items: Vec<serde_json::Value> = Vec::new();
     for task in &tasks {
         let mut v = task_to_json(task);
+        // 仅顶层任务可能是任务组：内联返回子任务与完成进度（前端据此渲染组结构）
         if task.parent_id.is_none() {
-            // fetch child progress
-            let (child_total, child_done): (i64, i64) = sqlx::query_as(
-                "SELECT COUNT(*), SUM(CASE WHEN completed THEN 1 ELSE 0 END) \
-                 FROM tasks WHERE parent_id = $1 AND deleted_at IS NULL",
+            let children: Vec<Task> = sqlx::query_as(
+                "SELECT * FROM tasks WHERE parent_id = $1 AND deleted_at IS NULL \
+                 ORDER BY sort_order ASC, created_at ASC",
             )
             .bind(task.id)
-            .fetch_one(&state.db)
+            .fetch_all(&state.db)
             .await
-            .unwrap_or((0, 0));
-            if child_total > 0 {
-                v["child_total"] = json!(child_total);
-                v["child_done"] = json!(child_done);
+            .unwrap_or_default();
+            if !children.is_empty() {
+                let done = children.iter().filter(|c| c.completed).count() as i64;
+                v["subtask_total"] = json!(children.len() as i64);
+                v["subtask_completed"] = json!(done);
+                v["subtasks"] = json!(children.iter().map(task_to_json).collect::<Vec<_>>());
             }
         }
         items.push(v);
@@ -286,19 +299,20 @@ pub async fn create_task(
         return (StatusCode::BAD_REQUEST, err("分类无效"));
     }
 
-    // Check one-level constraint: if parent_id is set, it must not itself have a parent
+    // 仅一级约束 + 父任务归属校验：parent_id 必须是当前用户名下、且自身无父的任务
     if let Some(pid) = body.parent_id {
-        let parent_has_parent: bool = sqlx::query_scalar(
-            "SELECT parent_id IS NOT NULL FROM tasks WHERE id = $1 AND user_id = $2",
+        let parent_row: Option<bool> = sqlx::query_scalar(
+            "SELECT parent_id IS NOT NULL FROM tasks WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL",
         )
         .bind(pid)
         .bind(uid)
         .fetch_optional(&state.db)
         .await
-        .unwrap_or(None)
-        .unwrap_or(false);
-        if parent_has_parent {
-            return (StatusCode::BAD_REQUEST, err("不允许多级子任务"));
+        .unwrap_or(None);
+        match parent_row {
+            None => return (StatusCode::BAD_REQUEST, err("父任务不存在")),
+            Some(true) => return (StatusCode::BAD_REQUEST, err("不允许多级子任务")),
+            Some(false) => {}
         }
     }
 
@@ -311,7 +325,7 @@ pub async fn create_task(
     .bind(body.title.trim())
     .bind(body.description.as_deref().unwrap_or(""))
     .bind(category)
-    .bind(body.star_rating.unwrap_or(0))
+    .bind(clamp_star_rating(body.star_rating.unwrap_or(0)))
     .bind(body.sort_order.unwrap_or(0))
     .bind(body.start_date)
     .bind(body.deadline)
@@ -373,8 +387,13 @@ pub async fn update_task(
     if let Some(so) = body.sort_order {
         task.sort_order = so;
     }
-    task.start_date = body.start_date.or(task.start_date);
-    task.deadline = body.deadline.or(task.deadline);
+    // 显式传 null 可清空；字段缺省则保持原值
+    if let Some(sd) = body.start_date {
+        task.start_date = sd;
+    }
+    if let Some(dl) = body.deadline {
+        task.deadline = dl;
+    }
 
     let completed_at = if let Some(c) = body.completed {
         task.completed = c;
@@ -571,9 +590,31 @@ pub async fn create_group(
     };
 
     let p = &body.parent;
+    if p.title.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, err("任务标题不能为空"));
+    }
     let category = p.category.as_deref().unwrap_or("其他");
+    if !is_valid_category(category) {
+        return (StatusCode::BAD_REQUEST, err("分类无效"));
+    }
+    for sub in &body.subtasks {
+        if let Some(c) = sub.category.as_deref() {
+            if !is_valid_category(c) {
+                return (StatusCode::BAD_REQUEST, err("分类无效"));
+            }
+        }
+    }
 
-    let parent: Task = sqlx::query_as(
+    // 事务：父任务 + 子任务原子写入，任一失败则整体回滚（§3.4.8）
+    let mut tx = match state.db.begin().await {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("create_group begin tx error: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, err("创建失败"));
+        }
+    };
+
+    let parent: Task = match sqlx::query_as(
         "INSERT INTO tasks (user_id, title, description, category, star_rating, start_date, deadline) \
          VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *",
     )
@@ -581,17 +622,26 @@ pub async fn create_group(
     .bind(p.title.trim())
     .bind(p.description.as_deref().unwrap_or(""))
     .bind(category)
-    .bind(p.star_rating.unwrap_or(0))
+    .bind(clamp_star_rating(p.star_rating.unwrap_or(0)))
     .bind(p.start_date)
     .bind(p.deadline)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await
-    .map_err(|e| tracing::error!("create_group parent error: {e}"))
-    .unwrap();
+    {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("create_group parent error: {e}");
+            let _ = tx.rollback().await;
+            return (StatusCode::INTERNAL_SERVER_ERROR, err("创建失败"));
+        }
+    };
 
     for sub in &body.subtasks {
+        if sub.title.trim().is_empty() {
+            continue;
+        }
         let sub_cat = sub.category.as_deref().unwrap_or(category);
-        let _ = sqlx::query(
+        if let Err(e) = sqlx::query(
             "INSERT INTO tasks (user_id, parent_id, title, description, category, star_rating, sort_order, start_date, deadline) \
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
         )
@@ -600,12 +650,22 @@ pub async fn create_group(
         .bind(sub.title.trim())
         .bind(sub.description.as_deref().unwrap_or(""))
         .bind(sub_cat)
-        .bind(sub.star_rating.unwrap_or(0))
+        .bind(clamp_star_rating(sub.star_rating.unwrap_or(0)))
         .bind(sub.sort_order.unwrap_or(0))
         .bind(sub.start_date)
         .bind(sub.deadline)
-        .execute(&state.db)
-        .await;
+        .execute(&mut *tx)
+        .await
+        {
+            tracing::error!("create_group subtask error: {e}");
+            let _ = tx.rollback().await;
+            return (StatusCode::INTERNAL_SERVER_ERROR, err("创建失败"));
+        }
+    }
+
+    if let Err(e) = tx.commit().await {
+        tracing::error!("create_group commit error: {e}");
+        return (StatusCode::INTERNAL_SERVER_ERROR, err("创建失败"));
     }
 
     (

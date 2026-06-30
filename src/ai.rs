@@ -2,7 +2,6 @@ use axum::{
     extract::{Json, State},
     http::{HeaderMap, StatusCode},
 };
-use chrono::Utc;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -135,7 +134,7 @@ pub async fn parse_task(
     };
 
     let cfg = get_llm_config(&headers, &state);
-    let today = Utc::now().format("%Y-%m-%d").to_string();
+    let today = crate::util::beijing_today().format("%Y-%m-%d").to_string();
 
     let system = format!(
         r#"你是任务解析助手。今天日期：{}。
@@ -200,7 +199,7 @@ pub async fn brain_dump(
     };
 
     let cfg = get_llm_config(&headers, &state);
-    let today = Utc::now().format("%Y-%m-%d").to_string();
+    let today = crate::util::beijing_today().format("%Y-%m-%d").to_string();
 
     let system = format!(
         r#"你是任务整理助手。今天日期：{}。
@@ -224,7 +223,7 @@ pub async fn brain_dump(
 
     match call_llm(&cfg, &system, &body.text).await {
         Ok(content) => match serde_json::from_str::<Value>(&content) {
-            Ok(data) => (StatusCode::OK, ok("解析成功", data)),
+            Ok(data) => (StatusCode::OK, ok("解析成功", normalize_items(data))),
             Err(_) => (StatusCode::OK, ai_error()),
         },
         Err(e) => {
@@ -288,7 +287,7 @@ pub async fn decompose_task(
     };
 
     let cfg = get_llm_config(&headers, &state);
-    let today = Utc::now().format("%Y-%m-%d").to_string();
+    let today = crate::util::beijing_today().format("%Y-%m-%d").to_string();
 
     let system = format!(
         r#"你是任务拆解助手。今天日期：{}。
@@ -349,7 +348,7 @@ pub async fn semantic_search(
     }
 
     let cfg = get_llm_config(&headers, &state);
-    let today = Utc::now().format("%Y-%m-%d").to_string();
+    let today = crate::util::beijing_today().format("%Y-%m-%d").to_string();
 
     // Serialize tasks as context
     let tasks_json = serde_json::to_string(
@@ -388,7 +387,27 @@ pub async fn semantic_search(
 
     match call_llm(&cfg, &system, &body.query).await {
         Ok(content) => match serde_json::from_str::<Value>(&content) {
-            Ok(data) => (StatusCode::OK, ok("检索完成", data)),
+            Ok(data) => {
+                // 用 LLM 返回的 id 回查真实任务，输出完整 Task 对象（前端按 Task 渲染元信息）
+                use std::collections::HashMap;
+                let by_id: HashMap<String, &Task> =
+                    tasks.iter().map(|t| (t.id.to_string(), t)).collect();
+                let mut items: Vec<Value> = Vec::new();
+                if let Some(arr) = data.get("items").and_then(|v| v.as_array()) {
+                    for it in arr {
+                        if let Some(id) = it.get("id").and_then(|v| v.as_str()) {
+                            if let Some(t) = by_id.get(id) {
+                                items.push(serde_json::to_value(t).unwrap_or(Value::Null));
+                            }
+                        }
+                    }
+                }
+                let explanation = data.get("explanation").cloned().unwrap_or(Value::Null);
+                (
+                    StatusCode::OK,
+                    ok("检索完成", json!({"items": items, "explanation": explanation})),
+                )
+            }
             Err(_) => (StatusCode::OK, ai_error()),
         },
         Err(e) => {
@@ -424,7 +443,7 @@ pub async fn morning_recommend(
         .unwrap_or_else(|_| "温暖鼓励型".into());
 
     let cfg = get_llm_config(&headers, &state);
-    let today = Utc::now().format("%Y-%m-%d").to_string();
+    let today = crate::util::beijing_today().format("%Y-%m-%d").to_string();
 
     let tasks_json = serde_json::to_string(
         &tasks
@@ -480,11 +499,8 @@ pub async fn evening_summary(
         Err(e) => return e,
     };
 
-    let today_start = Utc::now()
-        .date_naive()
-        .and_hms_opt(0, 0, 0)
-        .map(|dt| chrono::TimeZone::from_utc_datetime(&Utc, &dt))
-        .unwrap_or_else(Utc::now);
+    // 北京时区今天 0 点（对应 UTC 时刻），与提示词的 +08:00 口径一致
+    let today_start = crate::util::beijing_today_start_utc();
 
     // Today's tasks
     let completed_today: Vec<Task> = sqlx::query_as(
@@ -520,7 +536,7 @@ pub async fn evening_summary(
         .unwrap_or_else(|_| "温暖鼓励型".into());
 
     let cfg = get_llm_config(&headers, &state);
-    let today = Utc::now().format("%Y-%m-%d").to_string();
+    let today = crate::util::beijing_today().format("%Y-%m-%d").to_string();
 
     let context = json!({
         "today": today,

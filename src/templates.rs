@@ -2,7 +2,6 @@ use axum::{
     extract::{Json, Path, State},
     http::{HeaderMap, StatusCode},
 };
-use chrono::Utc;
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -10,6 +9,7 @@ use crate::auth::current_user;
 use crate::models::TaskTemplate;
 use crate::response::{err, ok, ok_msg, ApiResponse};
 use crate::state::SharedState;
+use crate::tasks::{clamp_star_rating, is_valid_category};
 
 #[derive(Deserialize)]
 pub struct CreateTemplateReq {
@@ -73,8 +73,11 @@ pub async fn create_template(
         return (StatusCode::BAD_REQUEST, err("频率无效，应为 daily/weekly/monthly"));
     }
     let category = body.category.as_deref().unwrap_or("其他");
+    if !is_valid_category(category) {
+        return (StatusCode::BAD_REQUEST, err("分类无效"));
+    }
 
-    let tmpl: TaskTemplate = sqlx::query_as(
+    let tmpl: Result<TaskTemplate, _> = sqlx::query_as(
         "INSERT INTO task_templates (user_id, title, description, category, star_rating, frequency, generate_day, generate_time, deadline_day, deadline_time) \
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *",
     )
@@ -82,18 +85,22 @@ pub async fn create_template(
     .bind(body.title.trim())
     .bind(body.description.as_deref().unwrap_or(""))
     .bind(category)
-    .bind(body.star_rating.unwrap_or(0))
+    .bind(clamp_star_rating(body.star_rating.unwrap_or(0)))
     .bind(&body.frequency)
     .bind(body.generate_day.unwrap_or(0))
     .bind(body.generate_time.as_deref().unwrap_or("09:00"))
     .bind(body.deadline_day.unwrap_or(0))
     .bind(body.deadline_time.as_deref().unwrap_or("18:00"))
     .fetch_one(&state.db)
-    .await
-    .map_err(|e| tracing::error!("create_template error: {e}"))
-    .unwrap();
+    .await;
 
-    (StatusCode::CREATED, ok("模板创建成功", tmpl))
+    match tmpl {
+        Ok(t) => (StatusCode::CREATED, ok("模板创建成功", t)),
+        Err(e) => {
+            tracing::error!("create_template error: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, err("创建失败"))
+        }
+    }
 }
 
 pub async fn update_template(
@@ -199,6 +206,49 @@ pub async fn delete_template(
     }
 }
 
+/// 从模板生成一条任务（截止时间按北京时区解释），并更新 last_generated。成功返回 true。
+/// 手动生成与后台调度共用此逻辑（DRY）。
+pub async fn generate_task_from_template(
+    db: &sqlx::PgPool,
+    tmpl: &TaskTemplate,
+    today: chrono::NaiveDate,
+) -> bool {
+    use chrono::TimeZone;
+    let deadline_date = today + chrono::Duration::days(tmpl.deadline_day as i64);
+    let parts: Vec<&str> = tmpl.deadline_time.split(':').collect();
+    let hour: u32 = parts.first().and_then(|s| s.parse().ok()).unwrap_or(18);
+    let min: u32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let deadline_dt = deadline_date.and_hms_opt(hour, min, 0).and_then(|naive| {
+        crate::util::beijing_offset()
+            .from_local_datetime(&naive)
+            .single()
+            .map(|dt| dt.with_timezone(&chrono::Utc))
+    });
+
+    let r = sqlx::query(
+        "INSERT INTO tasks (user_id, title, description, category, star_rating, deadline) VALUES ($1,$2,$3,$4,$5,$6)",
+    )
+    .bind(tmpl.user_id)
+    .bind(&tmpl.title)
+    .bind(&tmpl.description)
+    .bind(&tmpl.category)
+    .bind(tmpl.star_rating)
+    .bind(deadline_dt)
+    .execute(db)
+    .await;
+
+    if r.is_ok() {
+        let _ = sqlx::query("UPDATE task_templates SET last_generated=$1 WHERE id=$2")
+            .bind(today)
+            .bind(tmpl.id)
+            .execute(db)
+            .await;
+        true
+    } else {
+        false
+    }
+}
+
 /// 手动触发生成任务：从该用户的每个模板各立即生成 1 个任务（忽略 schedule 到期判断，
 /// 因为这是用户按需手动生成）。无模板时返回提示。
 pub async fn generate_tasks(
@@ -221,45 +271,12 @@ pub async fn generate_tasks(
         return (StatusCode::OK, err("请先创建模板"));
     }
 
-    let today = Utc::now().date_naive();
+    let today = crate::util::beijing_today();
     let mut generated = 0u32;
 
     for tmpl in &templates {
-        // Compute deadline
-        let deadline_days = tmpl.deadline_day as i64;
-        let deadline_time = &tmpl.deadline_time;
-        let deadline_dt = {
-            let deadline_date = today + chrono::Duration::days(deadline_days);
-            // Parse "HH:MM"
-            let parts: Vec<&str> = deadline_time.split(':').collect();
-            let hour: u32 = parts.first().and_then(|s| s.parse().ok()).unwrap_or(18);
-            let min: u32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
-            deadline_date.and_hms_opt(hour, min, 0).map(|dt| {
-                chrono::TimeZone::from_utc_datetime(&Utc, &dt)
-            })
-        };
-
-        let r = sqlx::query(
-            "INSERT INTO tasks (user_id, title, description, category, star_rating, deadline) VALUES ($1,$2,$3,$4,$5,$6)",
-        )
-        .bind(uid)
-        .bind(&tmpl.title)
-        .bind(&tmpl.description)
-        .bind(&tmpl.category)
-        .bind(tmpl.star_rating)
-        .bind(deadline_dt)
-        .execute(&state.db)
-        .await;
-
-        if r.is_ok() {
+        if generate_task_from_template(&state.db, tmpl, today).await {
             generated += 1;
-            let _ = sqlx::query(
-                "UPDATE task_templates SET last_generated=$1 WHERE id=$2",
-            )
-            .bind(today)
-            .bind(tmpl.id)
-            .execute(&state.db)
-            .await;
         }
     }
 

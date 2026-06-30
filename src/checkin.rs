@@ -2,11 +2,10 @@ use axum::{
     extract::{Json, State},
     http::{HeaderMap, StatusCode},
 };
-use chrono::Utc;
-
 use crate::auth::current_user;
 use crate::response::{err, ok, ApiResponse};
 use crate::state::SharedState;
+use crate::util::beijing_today;
 
 /// 纯函数：根据上次签到日期和当前连续天数，计算新的连续天数。
 /// 供测试和业务逻辑共用。
@@ -102,7 +101,7 @@ pub async fn checkin_status(
     .unwrap_or(None);
 
     let (last_checkin_date, current_streak, max_streak) = row.unwrap_or((None, 0, 0));
-    let today = Utc::now().date_naive();
+    let today = beijing_today();
     let today_checked = last_checkin_date == Some(today);
 
     (
@@ -145,7 +144,7 @@ pub async fn checkin(
     .unwrap_or(None);
 
     let (last_checkin_date, current_streak, max_streak) = row.unwrap_or((None, 0, 0));
-    let today = Utc::now().date_naive();
+    let today = beijing_today();
 
     let new_streak = match compute_new_streak(last_checkin_date, current_streak, today) {
         Some(s) => s,

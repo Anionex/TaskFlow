@@ -7,9 +7,11 @@ pub mod models;
 pub mod recycle;
 pub mod response;
 pub mod state;
+pub mod scheduler;
 pub mod tasks;
 pub mod templates;
 pub mod user;
+pub mod util;
 
 use std::sync::Arc;
 

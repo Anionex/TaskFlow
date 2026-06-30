@@ -33,6 +33,9 @@ async fn main() -> anyhow::Result<()> {
         contact_email: config.contact_email.clone(),
     };
 
+    // 启动模板自动生成后台调度器（§1.3.9 按日/周/月自动生成）
+    taskflow::scheduler::spawn(pool.clone());
+
     let app = build_app(pool, test_cfg);
 
     let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0".to_string());
