@@ -19,7 +19,39 @@ struct LlmConfig {
     model: String,
 }
 
-/// 解析大模型配置，优先级：请求头(本机覆盖) → 账户已保存设置(跨设备) → 服务端默认。
+/// 自带 key 时 base/model 的兜底（设置页申请 key 的入口就是 DeepSeek 官方）。
+const DEEPSEEK_BASE: &str = "https://api.deepseek.com";
+const DEEPSEEK_MODEL: &str = "deepseek-chat";
+
+/// 把"用户显式值"与"服务端默认"解析成最终 LLM 配置。
+///
+/// 关键点：一旦用户自带了 key，base/model 留空时必须默认 DeepSeek 官方，
+/// 而**不能**回退到服务端默认的 aihubmix——否则会把用户的 DeepSeek key 发去
+/// aihubmix 导致 401（"服务不可用，请手动填写"）。只有完全没有自带 key 时，
+/// 才用服务端那套同源的完整三件套。
+fn resolve_llm(
+    user_key: Option<String>,
+    user_base: Option<String>,
+    user_model: Option<String>,
+    def_key: &str,
+    def_base: &str,
+    def_model: &str,
+) -> LlmConfig {
+    match user_key {
+        Some(key) => LlmConfig {
+            api_key: key,
+            base_url: user_base.unwrap_or_else(|| DEEPSEEK_BASE.to_string()),
+            model: user_model.unwrap_or_else(|| DEEPSEEK_MODEL.to_string()),
+        },
+        None => LlmConfig {
+            api_key: def_key.to_string(),
+            base_url: user_base.unwrap_or_else(|| def_base.to_string()),
+            model: user_model.unwrap_or_else(|| def_model.to_string()),
+        },
+    }
+}
+
+/// 解析大模型配置。每个用户显式值的来源优先级：请求头(本机覆盖) → 账户已保存设置(跨设备)。
 /// 账户设置存于 users 表，使得在 A 设备保存后 B 设备登录同账户也能直接使用。
 async fn get_llm_config(headers: &HeaderMap, state: &SharedState, uid: Uuid) -> LlmConfig {
     // 账户持久化的设置（空字符串视为未设置）。
@@ -41,17 +73,18 @@ async fn get_llm_config(headers: &HeaderMap, state: &SharedState, uid: Uuid) -> 
     };
     let non_empty = |s: String| if s.is_empty() { None } else { Some(s) };
 
-    let base_url = header("x-llm-base-url")
-        .or_else(|| non_empty(stored_base))
-        .unwrap_or_else(|| state.config.llm_base_url.clone());
-    let api_key = header("x-llm-key")
-        .or_else(|| non_empty(stored_key))
-        .unwrap_or_else(|| state.config.llm_api_key.clone());
-    let model = header("x-llm-model")
-        .or_else(|| non_empty(stored_model))
-        .unwrap_or_else(|| state.config.llm_model.clone());
+    let user_key = header("x-llm-key").or_else(|| non_empty(stored_key));
+    let user_base = header("x-llm-base-url").or_else(|| non_empty(stored_base));
+    let user_model = header("x-llm-model").or_else(|| non_empty(stored_model));
 
-    LlmConfig { base_url, api_key, model }
+    resolve_llm(
+        user_key,
+        user_base,
+        user_model,
+        &state.config.llm_api_key,
+        &state.config.llm_base_url,
+        &state.config.llm_model,
+    )
 }
 
 async fn call_llm(
@@ -581,8 +614,51 @@ pub async fn evening_summary(
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_items;
+    use super::{normalize_items, resolve_llm};
     use serde_json::json;
+
+    const DEF_KEY: &str = "server-key";
+    const DEF_BASE: &str = "https://aihubmix.com/v1";
+    const DEF_MODEL: &str = "deepseek-v4-flash";
+
+    fn s(v: &str) -> Option<String> {
+        Some(v.to_string())
+    }
+
+    // 用户没自带 key → 用服务端完整三件套（同源）。
+    #[test]
+    fn no_user_key_uses_server_triplet() {
+        let c = resolve_llm(None, None, None, DEF_KEY, DEF_BASE, DEF_MODEL);
+        assert_eq!(c.api_key, DEF_KEY);
+        assert_eq!(c.base_url, DEF_BASE);
+        assert_eq!(c.model, DEF_MODEL);
+    }
+
+    // 复现并锁定 bug：自带 key、model/base 留空 → 必须默认 DeepSeek 官方，
+    // 绝不能回退到服务端的 aihubmix（否则把用户 key 发错服务商）。
+    #[test]
+    fn byo_key_only_defaults_to_deepseek_not_aihubmix() {
+        let c = resolve_llm(s("sk-user"), None, None, DEF_KEY, DEF_BASE, DEF_MODEL);
+        assert_eq!(c.api_key, "sk-user");
+        assert_eq!(c.base_url, "https://api.deepseek.com");
+        assert_eq!(c.model, "deepseek-chat");
+    }
+
+    // 自带 key 且显式给了 base/model → 原样使用（如 aihubmix 用户或测试 mock）。
+    #[test]
+    fn byo_key_with_explicit_base_model_is_respected() {
+        let c = resolve_llm(
+            s("sk-user"),
+            s("https://mock/v1"),
+            s("test-model"),
+            DEF_KEY,
+            DEF_BASE,
+            DEF_MODEL,
+        );
+        assert_eq!(c.api_key, "sk-user");
+        assert_eq!(c.base_url, "https://mock/v1");
+        assert_eq!(c.model, "test-model");
+    }
 
     #[test]
     fn wraps_items_array() {

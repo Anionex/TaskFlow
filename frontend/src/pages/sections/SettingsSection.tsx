@@ -265,10 +265,10 @@ export function SettingsSection() {
             </a>
           </p>
         </Field>
-        <Field label="模型名称" hint="留空走服务端默认；自带 DeepSeek key 填 deepseek-chat">
+        <Field label="模型名称" hint="自带 key 时留空默认 deepseek-chat（DeepSeek 官方）；用其他服务商请填对应模型名">
           <input type="text" value={llmModel} onChange={(e) => setLlmModel(e.target.value)} placeholder="deepseek-chat" style={inputStyle} onFocus={focusIn} onBlur={focusOut} />
         </Field>
-        <Field label="模型 Base URL（可选）" hint="留空走服务端默认；自带 DeepSeek key 填 https://api.deepseek.com">
+        <Field label="模型 Base URL（可选）" hint="自带 key 时留空默认 https://api.deepseek.com（DeepSeek 官方）；用其他服务商请填其 Base URL">
           <input type="text" value={llmBase} onChange={(e) => setLlmBase(e.target.value)} placeholder="https://api.deepseek.com" style={inputStyle} onFocus={focusIn} onBlur={focusOut} />
         </Field>
         <button
