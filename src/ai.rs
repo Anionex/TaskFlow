@@ -136,6 +136,40 @@ fn ai_error() -> Json<ApiResponse> {
     err("智能服务暂时不可用，请手动填写")
 }
 
+/// 轻量的"用户当前在做什么"梗概，注入到创建/拆解类提示词，
+/// 帮助模型避免与既有任务重复、保持分类与重要度风格一致。
+/// 只取概要（最近若干条未完成任务标题 + 分类分布），不塞全量任务，控制 token 与跑偏风险。
+async fn user_context_brief(state: &SharedState, uid: Uuid) -> String {
+    let tasks: Vec<(String, String)> = sqlx::query_as(
+        "SELECT title, category FROM tasks \
+         WHERE user_id=$1 AND deleted_at IS NULL AND completed=false \
+         ORDER BY created_at DESC LIMIT 30",
+    )
+    .bind(uid)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    if tasks.is_empty() {
+        return "用户当前没有未完成任务。".to_string();
+    }
+
+    let recent: Vec<&str> = tasks.iter().take(8).map(|(t, _)| t.as_str()).collect();
+
+    use std::collections::BTreeMap;
+    let mut by_cat: BTreeMap<&str, i32> = BTreeMap::new();
+    for (_, c) in &tasks {
+        *by_cat.entry(c.as_str()).or_insert(0) += 1;
+    }
+    let cats: Vec<String> = by_cat.iter().map(|(c, n)| format!("{c}×{n}")).collect();
+
+    format!(
+        "用户最近的未完成任务（仅供参考，用于避免重复、保持分类与重要度风格一致；不要把用户的新输入合并进这些已有任务）：{}。常见分类：{}。",
+        recent.join("、"),
+        cats.join("、"),
+    )
+}
+
 // ── 请求体 ─────────────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -178,10 +212,11 @@ pub async fn parse_task(
     };
 
     let cfg = get_llm_config(&headers, &state, uid).await;
-    let today = crate::util::beijing_today().format("%Y-%m-%d").to_string();
+    let now = crate::util::beijing_now_label();
+    let brief = user_context_brief(&state, uid).await;
 
     let system = format!(
-        r#"你是任务解析助手。今天日期：{}。
+        r#"你是任务解析助手。当前时间：{}。
 用户输入一段文字，由你判断里面包含几件事：一句话通常是1件，一段含多件事则拆成多条。
 以严格JSON格式输出一个数组：
 {{
@@ -197,8 +232,9 @@ pub async fn parse_task(
     }}
   ]
 }}
-即使只有1件事也要放进items数组。只输出JSON，不要其他文字。时区使用+08:00。category只能是以上5个之一。"#,
-        today
+即使只有1件事也要放进items数组。只输出JSON，不要其他文字。时区使用+08:00。"周三/这周末/下午3点/2小时后"等相对时间请基于上面的当前时间换算。category只能是以上5个之一。
+{}"#,
+        now, brief
     );
 
     match call_llm(&cfg, &system, &body.text).await {
@@ -243,10 +279,11 @@ pub async fn brain_dump(
     };
 
     let cfg = get_llm_config(&headers, &state, uid).await;
-    let today = crate::util::beijing_today().format("%Y-%m-%d").to_string();
+    let now = crate::util::beijing_now_label();
+    let brief = user_context_brief(&state, uid).await;
 
     let system = format!(
-        r#"你是任务整理助手。今天日期：{}。
+        r#"你是任务整理助手。当前时间：{}。
 用户会一次输入多件事，请拆分成多条任务，以严格JSON格式输出：
 {{
   "items": [
@@ -261,8 +298,9 @@ pub async fn brain_dump(
     }}
   ]
 }}
-只输出JSON，不要其他文字。时区+08:00。"#,
-        today
+只输出JSON，不要其他文字。时区+08:00。相对时间请基于上面的当前时间换算。
+{}"#,
+        now, brief
     );
 
     match call_llm(&cfg, &system, &body.text).await {
@@ -290,15 +328,19 @@ pub async fn rewrite_task(
     };
 
     let cfg = get_llm_config(&headers, &state, uid).await;
+    let now = crate::util::beijing_now_label();
 
-    let system = r#"你是GTD任务改写助手。
+    let system = format!(
+        r#"你是GTD任务改写助手。当前时间：{}。
 判断任务是否为"含糊、不可执行"的大目标，并输出严格JSON：
-{
+{{
   "actionable": true/false,
   "suggested_title": "若actionable=false，给出具体可执行的下一步行动；否则与原标题相同",
   "reason": "说明原因"
-}
-只输出JSON，不要其他文字。"#;
+}}
+只输出JSON，不要其他文字。"#,
+        now
+    );
 
     let user_msg = format!(
         "标题：{}\n备注：{}",
@@ -306,7 +348,7 @@ pub async fn rewrite_task(
         body.description.as_deref().unwrap_or("")
     );
 
-    match call_llm(&cfg, system, &user_msg).await {
+    match call_llm(&cfg, &system, &user_msg).await {
         Ok(content) => match serde_json::from_str::<Value>(&content) {
             Ok(data) => (StatusCode::OK, ok("改写完成", data)),
             Err(_) => (StatusCode::OK, ai_error()),
@@ -331,10 +373,11 @@ pub async fn decompose_task(
     };
 
     let cfg = get_llm_config(&headers, &state, uid).await;
-    let today = crate::util::beijing_today().format("%Y-%m-%d").to_string();
+    let now = crate::util::beijing_now_label();
+    let brief = user_context_brief(&state, uid).await;
 
     let system = format!(
-        r#"你是任务拆解助手。今天日期：{}。
+        r#"你是任务拆解助手。当前时间：{}。
 判断该任务是否为大目标需要拆解，输出严格JSON：
 {{
   "is_big_task": true/false,
@@ -344,8 +387,9 @@ pub async fn decompose_task(
     ...
   ]
 }}
-若is_big_task=false则subtasks为空数组。每个子任务需有sort_order（从1开始）。只输出JSON。"#,
-        today
+若is_big_task=false则subtasks为空数组。每个子任务需有sort_order（从1开始）。只输出JSON。
+{}"#,
+        now, brief
     );
 
     let user_msg = format!(
@@ -392,7 +436,7 @@ pub async fn semantic_search(
     }
 
     let cfg = get_llm_config(&headers, &state, uid).await;
-    let today = crate::util::beijing_today().format("%Y-%m-%d").to_string();
+    let today = crate::util::beijing_now_label();
 
     // Serialize tasks as context
     let tasks_json = serde_json::to_string(
@@ -415,7 +459,7 @@ pub async fn semantic_search(
     .unwrap_or_default();
 
     let system = format!(
-        r#"你是任务检索助手。今天日期：{}。
+        r#"你是任务检索助手。当前时间：{}。
 以下是用户的任务列表（JSON），请根据查询语义筛选出最相关的任务，按相关性和紧迫度排序，输出严格JSON：
 {{
   "items": [
@@ -487,7 +531,7 @@ pub async fn morning_recommend(
         .unwrap_or_else(|_| "温暖鼓励型".into());
 
     let cfg = get_llm_config(&headers, &state, uid).await;
-    let today = crate::util::beijing_today().format("%Y-%m-%d").to_string();
+    let today = crate::util::beijing_now_label();
 
     let tasks_json = serde_json::to_string(
         &tasks
@@ -507,7 +551,7 @@ pub async fn morning_recommend(
     .unwrap_or_default();
 
     let system = format!(
-        r#"你是任务推荐助手，语气风格：{}。今天日期：{}。
+        r#"你是任务推荐助手，语气风格：{}。当前时间：{}。
 根据以下未完成任务，推荐今天最值得做的3-5件事，综合考虑截止时间、重要程度、任务类型。
 输出严格JSON：
 {{
@@ -580,7 +624,7 @@ pub async fn evening_summary(
         .unwrap_or_else(|_| "温暖鼓励型".into());
 
     let cfg = get_llm_config(&headers, &state, uid).await;
-    let today = crate::util::beijing_today().format("%Y-%m-%d").to_string();
+    let today = crate::util::beijing_now_label();
 
     let context = json!({
         "today": today,
@@ -590,7 +634,7 @@ pub async fn evening_summary(
     });
 
     let system = format!(
-        r#"你是任务总结助手，语气风格：{}。今天日期：{}。
+        r#"你是任务总结助手，语气风格：{}。当前时间：{}。
 根据以下今日任务数据，生成一段今日回顾与推进建议。
 输出严格JSON：
 {{
