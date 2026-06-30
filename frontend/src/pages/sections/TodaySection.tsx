@@ -28,8 +28,10 @@ export function TodaySection() {
 
   const [morningLoading, setMorningLoading] = useState(false)
   const [morningData, setMorningData] = useState<MorningResult | null>(null)
+  const [showMorning, setShowMorning] = useState(false)
   const [eveningLoading, setEveningLoading] = useState(false)
   const [eveningData, setEveningData] = useState<EveningResult | null>(null)
+  const [showEvening, setShowEvening] = useState(false)
 
   const [stats, setStats] = useState<UserStats | null>(null)
   const [checkin, setCheckin] = useState<CheckinStatus | null>(null)
@@ -100,7 +102,7 @@ export function TodaySection() {
     setMorningData(null)
     try {
       const res = await aiApi.morning()
-      if (res.success && res.data) setMorningData(res.data)
+      if (res.success && res.data) { setMorningData(res.data); setShowMorning(true) }
       else addToast({ type: 'error', message: res.message || '推荐失败' })
     } catch {
       addToast({ type: 'error', message: 'AI 服务暂时不可用' })
@@ -114,7 +116,7 @@ export function TodaySection() {
     setEveningData(null)
     try {
       const res = await aiApi.evening()
-      if (res.success && res.data) setEveningData(res.data)
+      if (res.success && res.data) { setEveningData(res.data); setShowEvening(true) }
       else addToast({ type: 'error', message: res.message || '总结失败' })
     } catch {
       addToast({ type: 'error', message: 'AI 服务暂时不可用' })
@@ -305,8 +307,11 @@ export function TodaySection() {
             晚间总结
           </button>
         </div>
+      </div>
 
-        {morningData && !morningLoading && (
+      {/* Morning recommendations modal */}
+      <Modal open={showMorning} onClose={() => setShowMorning(false)} title="早间推荐">
+        {morningData && (
           <div style={{ paddingLeft: '16px', borderLeft: '2px solid var(--accent)' }}>
             <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: '12px' }}>
               今日推荐优先完成以下任务：
@@ -324,15 +329,18 @@ export function TodaySection() {
             </div>
           </div>
         )}
+      </Modal>
 
-        {eveningData && !eveningLoading && (
+      {/* Evening summary modal */}
+      <Modal open={showEvening} onClose={() => setShowEvening(false)} title="晚间总结">
+        {eveningData && (
           <div style={{ paddingLeft: '16px', borderLeft: '2px solid var(--border-strong)' }}>
             <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 'var(--lh-normal)' }}>
               {eveningData.summary}
             </p>
           </div>
         )}
-      </div>
+      </Modal>
 
       {/* Manual create modal */}
       <Modal open={showCreate} onClose={() => setShowCreate(false)} title="创建任务">

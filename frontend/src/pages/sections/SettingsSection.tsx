@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { Download, Upload, Eye, EyeOff } from 'lucide-react'
+import { Download, Upload, Eye, EyeOff, Info, HelpCircle } from 'lucide-react'
 import { Spinner } from '@/components/ui/Spinner'
+import { Modal } from '@/components/ui/Modal'
 import { PageContainer } from '@/components/layout/PageContainer'
 import { userApi } from '@/api/user'
 import { api } from '@/api/client'
@@ -72,6 +73,10 @@ export function SettingsSection() {
   // Import/export
   const [exporting, setExporting] = useState(false)
   const [importing, setImporting] = useState(false)
+
+  // About / Help modals
+  const [showAbout, setShowAbout] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
 
   useEffect(() => {
     loadSettings()
@@ -159,8 +164,9 @@ export function SettingsSection() {
       a.download = `taskflow-export-${new Date().toISOString().slice(0, 10)}.json`
       a.click()
       URL.revokeObjectURL(url)
+      addToast({ type: 'success', message: '数据已导出' })
     } catch {
-      addToast({ type: 'error', message: '导出失败' })
+      addToast({ type: 'error', message: '导出失败，请稍后重试' })
     } finally {
       setExporting(false)
     }
@@ -172,10 +178,10 @@ export function SettingsSection() {
     setImporting(true)
     try {
       const res = await api.upload('/import', file)
-      if (res.success) addToast({ type: 'success', message: '导入成功' })
-      else addToast({ type: 'error', message: res.message || '导入失败' })
+      if (res.success) addToast({ type: 'success', message: '数据已导入' })
+      else addToast({ type: 'error', message: res.message || '导入失败，请检查文件格式' })
     } catch {
-      addToast({ type: 'error', message: '导入失败' })
+      addToast({ type: 'error', message: '导入失败，请检查文件格式' })
     } finally {
       setImporting(false)
       e.target.value = ''
@@ -358,8 +364,22 @@ export function SettingsSection() {
         <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: '10px' }}>导出为 JSON 格式，可用于备份或迁移数据。</p>
       </Section>
 
-      {/* Help */}
-      <Section title="使用说明">
+      {/* Help & About */}
+      <Section title="帮助与关于">
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <button onClick={() => setShowHelp(true)} style={entryBtnStyle}>
+            <HelpCircle size={13} aria-hidden />
+            使用说明
+          </button>
+          <button onClick={() => setShowAbout(true)} style={entryBtnStyle}>
+            <Info size={13} aria-hidden />
+            关于
+          </button>
+        </div>
+      </Section>
+
+      {/* Help modal */}
+      <Modal open={showHelp} onClose={() => setShowHelp(false)} title="使用说明">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {HELP_ITEMS.map((h) => (
             <div key={h.title}>
@@ -372,9 +392,53 @@ export function SettingsSection() {
             </div>
           ))}
         </div>
-      </Section>
+      </Modal>
+
+      {/* About modal */}
+      <Modal open={showAbout} onClose={() => setShowAbout(false)} title="关于">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div>
+            <div style={{ fontSize: 'var(--text-lg)', fontWeight: 'var(--fw-medium)', color: 'var(--text-primary)' }}>
+              TaskFlow
+            </div>
+            <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: '2px' }}>
+              V2.0.0
+            </div>
+          </div>
+          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', lineHeight: 'var(--lh-normal)' }}>
+            智能化 GTD 任务管理。
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
+            <div>
+              <span style={{ color: 'var(--text-muted)' }}>作者：</span>软件工程小组
+            </div>
+            <div>
+              <span style={{ color: 'var(--text-muted)' }}>技术栈：</span>React + Tauri 前端 / Rust(Axum) 后端 / PostgreSQL
+            </div>
+            <div>
+              <span style={{ color: 'var(--text-muted)' }}>开源地址：</span>
+              <a
+                href="https://github.com/Anionex/TaskFlow"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: 'var(--accent)', textDecoration: 'none' }}
+              >
+                github.com/Anionex/TaskFlow
+              </a>
+            </div>
+          </div>
+        </div>
+      </Modal>
     </PageContainer>
   )
+}
+
+const entryBtnStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: '5px',
+  background: 'none', border: '1px solid var(--border-strong)',
+  borderRadius: 'var(--radius-pill)', padding: '7px 16px',
+  fontSize: 'var(--text-sm)', color: 'var(--text-secondary)',
+  cursor: 'pointer', fontFamily: 'var(--font-sans)',
 }
 
 const HELP_ITEMS: { title: string; body: string }[] = [
