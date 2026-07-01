@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { Plus, Pencil, Trash2, Zap } from 'lucide-react'
+import { Plus, Pencil, Trash2, Zap, Info } from 'lucide-react'
+import { confirm } from '@/components/ui/ConfirmDialog'
 import { Modal, ModalFooter } from '@/components/ui/Modal'
 import { StarRating } from '@/components/ui/StarRating'
 import { Spinner } from '@/components/ui/Spinner'
@@ -39,10 +40,18 @@ const inputStyle: React.CSSProperties = {
 function focusIn(e: React.FocusEvent<any>) { e.target.style.borderColor = 'var(--accent)'; e.target.style.boxShadow = '0 0 0 3px var(--ring)' }
 function focusOut(e: React.FocusEvent<any>) { e.target.style.borderColor = 'var(--border-strong)'; e.target.style.boxShadow = 'none' }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: '14px' }}>
-      <label style={{ display: 'block', fontSize: 'var(--text-xs)', fontWeight: 'var(--fw-medium)', color: 'var(--text-secondary)', marginBottom: '5px' }}>{label}</label>
+      <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: 'var(--text-xs)', fontWeight: 'var(--fw-medium)', color: 'var(--text-secondary)', marginBottom: '5px' }}>
+        {label}
+        {/* 带示例的说明气泡：鼠标悬停 info 图标可看解释（item 6）。 */}
+        {hint && (
+          <span title={hint} style={{ display: 'inline-flex', color: 'var(--text-muted)', cursor: 'help', flexShrink: 0 }}>
+            <Info size={13} aria-hidden />
+          </span>
+        )}
+      </label>
       {children}
     </div>
   )
@@ -121,7 +130,7 @@ export function TemplatesSection() {
   }
 
   async function handleDelete(id: string) {
-    if (!window.confirm('确认删除此习惯？')) return
+    if (!(await confirm({ title: '删除习惯', message: '确认删除此习惯？', danger: true, confirmText: '删除' }))) return
     // 乐观移除该行；失败静默重载恢复。
     setTemplates((ts) => ts.filter((t) => t.id !== id))
     const res = await templatesApi.delete(id)
@@ -309,7 +318,7 @@ export function TemplatesSection() {
           </Field>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-          <Field label="截止偏移天">
+          <Field label="截止偏移天" hint="从任务生成当天算起第几天到期。0 = 当天到期，1 = 次日到期，7 = 一周后到期。例如每天生成、偏移 1，则今天生成的任务明天到期。">
             <input type="number" min={0} value={draft.deadline_day ?? 1} onChange={(e) => set('deadline_day', Number(e.target.value))} style={inputStyle} onFocus={focusIn} onBlur={focusOut} />
           </Field>
           <Field label="截止时间">
