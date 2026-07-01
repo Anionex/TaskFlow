@@ -50,6 +50,11 @@ fn is_safe_base_url(url: &str) -> bool {
     match ip_str.parse::<IpAddr>() {
         Ok(IpAddr::V4(ip)) => !(ip.is_link_local() || ip.is_unspecified()),
         Ok(IpAddr::V6(ip)) => {
+            // IPv4-mapped（::ffff:a.b.c.d）按 IPv4 规则复检，防止用映射地址
+            // （如 ::ffff:169.254.169.254）绕过链路本地/元数据拦截。
+            if let Some(v4) = ip.to_ipv4_mapped() {
+                return !(v4.is_link_local() || v4.is_unspecified());
+            }
             let seg0 = ip.segments()[0];
             let is_link_local = (seg0 & 0xffc0) == 0xfe80; // fe80::/10
             !(ip.is_unspecified() || is_link_local)
@@ -863,6 +868,8 @@ mod tests {
         assert!(!super::is_safe_base_url("http://0.0.0.0"));
         assert!(!super::is_safe_base_url("http://[fe80::1]"));
         assert!(!super::is_safe_base_url("http://[::]"));
+        // IPv4-mapped 不能绕过链路本地/元数据拦截。
+        assert!(!super::is_safe_base_url("http://[::ffff:169.254.169.254]"));
         // 有意放行：localhost / 环回 / 私网 LAN（自建 LLM 的正当用法）。
         assert!(super::is_safe_base_url("http://localhost:8080/v1"));
         assert!(super::is_safe_base_url("http://127.0.0.1"));
