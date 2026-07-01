@@ -156,6 +156,12 @@ fn allow_login_attempt(state: &SharedState, key: &str) -> bool {
         Err(p) => p.into_inner(), // 锁中毒也继续，避免因限流表导致登录彻底不可用
     };
     let now = std::time::Instant::now();
+    // 内存兜底：攻击者可用大量不同的合法格式手机号刷登录，使 map 无限增长（内存 DoS）。
+    // map 过大时顺手清理已过窗口的条目，把内存约束在"窗口内仍在失败的手机号数量"量级。
+    const MAX_ENTRIES: usize = 10_000;
+    if map.len() > MAX_ENTRIES {
+        map.retain(|_, (t, _)| now.duration_since(*t) <= LOGIN_WINDOW);
+    }
     let entry = map.entry(key.to_string()).or_insert((now, 0));
     // 窗口过期则重置。
     if now.duration_since(entry.0) > LOGIN_WINDOW {
