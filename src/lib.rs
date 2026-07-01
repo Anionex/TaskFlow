@@ -55,6 +55,7 @@ pub fn build_app(pool: sqlx::PgPool, config: TestConfig) -> Router {
     let state: SharedState = Arc::new(AppState {
         db: pool,
         config: config.into(),
+        login_attempts: Default::default(),
     });
 
     Router::new()

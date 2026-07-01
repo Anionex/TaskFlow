@@ -144,12 +144,48 @@ pub async fn register(
     }
 }
 
+/// 登录限流窗口与上限：同一手机号在窗口内失败达到上限即拒绝，避免暴力破解/枚举。
+const LOGIN_WINDOW: std::time::Duration = std::time::Duration::from_secs(60);
+const LOGIN_MAX_ATTEMPTS: u32 = 5;
+
+/// 记一次失败尝试；若当前窗口内失败次数已达上限返回 false（应被拒绝）。
+/// 纯内存滑窗（按 key 单窗口计数），进程重启即清零，够用且零依赖。
+fn allow_login_attempt(state: &SharedState, key: &str) -> bool {
+    let mut map = match state.login_attempts.lock() {
+        Ok(m) => m,
+        Err(p) => p.into_inner(), // 锁中毒也继续，避免因限流表导致登录彻底不可用
+    };
+    let now = std::time::Instant::now();
+    let entry = map.entry(key.to_string()).or_insert((now, 0));
+    // 窗口过期则重置。
+    if now.duration_since(entry.0) > LOGIN_WINDOW {
+        *entry = (now, 0);
+    }
+    if entry.1 >= LOGIN_MAX_ATTEMPTS {
+        return false;
+    }
+    entry.1 += 1;
+    true
+}
+
+/// 登录成功后清除该手机号的失败计数。
+fn clear_login_attempts(state: &SharedState, key: &str) {
+    if let Ok(mut map) = state.login_attempts.lock() {
+        map.remove(key);
+    }
+}
+
 pub async fn login(
     State(state): State<SharedState>,
     Json(body): Json<LoginReq>,
 ) -> Json<ApiResponse> {
     if !validate_phone(&body.phone) {
         return err("手机号格式错误，应为11位数字");
+    }
+
+    // 限流：同一手机号短时间内失败过多则直接拒绝（消息与失败态一致，不泄露账户存在性）。
+    if !allow_login_attempt(&state, &body.phone) {
+        return err("尝试过于频繁，请稍后再试");
     }
 
     let row = sqlx::query_as::<_, (Uuid, String)>(
@@ -159,14 +195,15 @@ pub async fn login(
     .fetch_optional(&state.db)
     .await;
 
+    // 防账户枚举：手机号未注册与密码错误返回同一条通用消息，二者不可区分。
     let (user_id, hash) = match row {
         Ok(Some(r)) => r,
-        Ok(None) => return err("该手机号未注册"),
+        Ok(None) => return err("手机号或密码错误"),
         Err(_) => return err("数据库错误"),
     };
 
     if !verify_password(&body.password, &hash) {
-        return err("密码错误");
+        return err("手机号或密码错误");
     }
 
     // 创建会话（30天有效）
@@ -183,6 +220,9 @@ pub async fn login(
     if session_id.is_nil() {
         return err("创建会话失败");
     }
+
+    // 登录成功，清除该手机号的失败计数。
+    clear_login_attempts(&state, &body.phone);
 
     ok("登录成功", session_id.to_string())
 }
