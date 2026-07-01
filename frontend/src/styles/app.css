@@ -114,6 +114,40 @@
   animation: spin 0.7s linear infinite;
 }
 
+/* ---- Skeleton loading (shimmer sweep + staggered rise; reduced-motion safe) */
+@keyframes tf-shimmer {
+  100% { transform: translateX(100%); }
+}
+.tf-skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+.tf-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.55) 50%, transparent 100%);
+  animation: tf-shimmer 1.5s var(--ease-in-out) infinite;
+}
+/* rows rise in with a per-row delay set inline for a smooth stagger */
+.tf-skeleton-row {
+  animation: tf-rise var(--dur-base) var(--ease-out) both;
+}
+/* real content fades in as the skeleton crossfades out — avoids a hard swap */
+@keyframes tf-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.tf-fade-in {
+  animation: tf-fade-in var(--dur-slow) var(--ease-out) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tf-skeleton::after { animation: none; }
+}
+
 /* Agent 模式：消息 / 确认卡的淡入上浮（reduced-motion 下自动失效，见下方 0ms 覆盖） */
 @keyframes tf-rise {
   from { opacity: 0; transform: translateY(6px); }

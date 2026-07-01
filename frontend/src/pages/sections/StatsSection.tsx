@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Spinner } from '@/components/ui/Spinner'
+import { Skeleton, LoadingSwap } from '@/components/ui/Skeleton'
 import { PageContainer } from '@/components/layout/PageContainer'
 import { userApi } from '@/api/user'
 import { useAppStore } from '@/store'
@@ -24,6 +24,35 @@ async function ensureChart() {
   return Chart
 }
 
+/** Skeleton mirroring the stats layout: summary numbers + two chart panels. */
+function StatsSkeleton({ isMobile }: { isMobile: boolean }) {
+  return (
+    <PageContainer>
+      <Skeleton width={72} height={26} style={{ marginBottom: '32px' }} />
+
+      {/* Summary numbers */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', rowGap: '20px', gap: isMobile ? '0' : '32px', marginBottom: isMobile ? '32px' : '40px', paddingBottom: '28px', borderBottom: '1px solid var(--border)' }}>
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} style={{ ...(isMobile ? { flex: '0 0 50%' } : null), display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <Skeleton width={44} height={28} />
+            <Skeleton width={32} height={11} />
+          </div>
+        ))}
+      </div>
+
+      {/* Charts */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(0, 320px) minmax(0, 1fr)', gap: isMobile ? '32px' : '48px', alignItems: 'start' }}>
+        {[0, 1].map((i) => (
+          <div key={i} style={{ minWidth: 0 }}>
+            <Skeleton width={120} height={16} style={{ marginBottom: '16px' }} />
+            <Skeleton width="100%" height={isMobile ? 240 : 280} radius="var(--radius-md)" />
+          </div>
+        ))}
+      </div>
+    </PageContainer>
+  )
+}
+
 export function StatsSection() {
   const theme = useAppStore((s) => s.theme)
   const isMobile = useIsMobile()
@@ -35,8 +64,10 @@ export function StatsSection() {
   const barChart = useRef<any>(null)
 
   useEffect(() => {
-    load()
+    let cancelled = false
+    load(() => cancelled)
     return () => {
+      cancelled = true
       pieChart.current?.destroy()
       barChart.current?.destroy()
     }
@@ -47,9 +78,10 @@ export function StatsSection() {
     if (stats) renderCharts()
   }, [stats, theme])
 
-  async function load() {
+  async function load(isCancelled: () => boolean) {
     setLoading(true)
     const res = await userApi.stats()
+    if (isCancelled()) return
     if (res.success && res.data) setStats(res.data)
     setLoading(false)
   }
@@ -152,13 +184,12 @@ export function StatsSection() {
     }
   }
 
-  if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: '80px' }}><Spinner size={24} /></div>
-  if (!stats) return null
-
   // 挂载闸与绘制闸用同一条件，避免挂了空 canvas。
-  const hasPieData = stats.completed + stats.pending + stats.expired > 0
+  const hasPieData = !!stats && stats.completed + stats.pending + stats.expired > 0
 
   return (
+    <LoadingSwap loading={loading} skeleton={<StatsSkeleton isMobile={isMobile} />}>
+    {stats && (
     <PageContainer>
       <h1 style={{ fontSize: 'var(--text-xl)', fontWeight: 'var(--fw-medium)', marginBottom: '32px', color: 'var(--text-primary)' }}>统计</h1>
 
@@ -215,5 +246,7 @@ export function StatsSection() {
         </div>
       </div>
     </PageContainer>
+    )}
+    </LoadingSwap>
   )
 }

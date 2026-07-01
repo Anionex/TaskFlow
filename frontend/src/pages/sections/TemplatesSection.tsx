@@ -4,6 +4,7 @@ import { confirm } from '@/components/ui/ConfirmDialog'
 import { Modal, ModalFooter } from '@/components/ui/Modal'
 import { StarRating } from '@/components/ui/StarRating'
 import { Spinner } from '@/components/ui/Spinner'
+import { SkeletonRows, LoadingSwap } from '@/components/ui/Skeleton'
 import { PageContainer } from '@/components/layout/PageContainer'
 import { templatesApi } from '@/api/templates'
 import { useAppStore } from '@/store'
@@ -235,9 +236,8 @@ export function TemplatesSection() {
         习惯会在指定时间自动生成任务，点击"生成习惯任务"可立即触发。
       </p>
 
-      {loading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '48px' }}><Spinner size={20} /></div>
-      ) : templates.length === 0 ? (
+      <LoadingSwap loading={loading} skeleton={<SkeletonRows count={4} />}>
+        {templates.length === 0 ? (
         <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-base)', color: 'var(--text-muted)', textAlign: 'center', padding: '48px 0' }}>
           暂无习惯，创建一个习惯
         </p>
@@ -275,6 +275,7 @@ export function TemplatesSection() {
           ))}
         </div>
       )}
+      </LoadingSwap>
 
       {/* Form modal */}
       <Modal open={showForm} onClose={() => setShowForm(false)} title={editing ? '编辑习惯' : '新建习惯'} maxWidth={500}>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { RotateCcw, Trash2 } from 'lucide-react'
 import { confirm } from '@/components/ui/ConfirmDialog'
-import { Spinner } from '@/components/ui/Spinner'
+import { SkeletonRows, LoadingSwap } from '@/components/ui/Skeleton'
 import { PageContainer } from '@/components/layout/PageContainer'
 import { recycleApi } from '@/api/recycle'
 import { useAppStore } from '@/store'
@@ -84,9 +84,8 @@ export function RecycleSection() {
         已删除的任务保留在这里，可还原或永久删除。
       </p>
 
-      {loading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '48px' }}><Spinner size={20} /></div>
-      ) : tasks.length === 0 ? (
+      <LoadingSwap loading={loading} skeleton={<SkeletonRows count={4} padding="10px 4px" />}>
+        {tasks.length === 0 ? (
         <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-base)', color: 'var(--text-muted)', textAlign: 'center', padding: '48px 0' }}>
           回收站为空
         </p>
@@ -137,6 +136,7 @@ export function RecycleSection() {
           ))}
         </div>
       )}
+      </LoadingSwap>
     </PageContainer>
   )
 }
