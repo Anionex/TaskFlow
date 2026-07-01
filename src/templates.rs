@@ -143,7 +143,8 @@ pub async fn update_template(
         tmpl.category = cat;
     }
     if let Some(sr) = body.star_rating {
-        tmpl.star_rating = sr;
+        // 与 create_template 一致：钳到 [0,5]。
+        tmpl.star_rating = clamp_star_rating(sr);
     }
     if let Some(freq) = body.frequency {
         // 与 create_template 一致：频率非法直接 400。
