@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   ChevronDown, ChevronRight, Plus, Trash2, CheckSquare, Square,
   Edit2, Sparkles, X
@@ -92,6 +92,8 @@ export function TasksSection() {
   const [semanticResults, setSemanticResults] = useState<Task[]>([])
   const [semanticExplanation, setSemanticExplanation] = useState<string | undefined>(undefined)
   const [committedQuery, setCommittedQuery] = useState('')
+  // 语义检索请求序号：只采用最新一次响应，避免乱序覆盖。
+  const semanticSeqRef = useRef(0)
   // #8 搜索栏直接建任务：精确搜索 0 结果时用 AI 依据输入生成建议草稿，也可手动直接建。
   const [aiCreateDraft, setAiCreateDraft] = useState<ParsedTask | null>(null)
   const [aiCreateLoading, setAiCreateLoading] = useState(false)
@@ -172,6 +174,8 @@ export function TasksSection() {
   async function runSemanticSearch(queryOverride?: string) {
     const q = (queryOverride ?? searchInput).trim()
     if (!q) { setSemanticActive(false); setSemanticResults([]); setSemanticExplanation(undefined); setCommittedQuery(''); return }
+    // 请求序号：并发/筛选切换导致多次检索时，只采用最新一次的响应，丢弃过期结果。
+    const seq = ++semanticSeqRef.current
     setCommittedQuery(q)
     setSemanticLoading(true)
     setSemanticActive(true)
@@ -179,6 +183,7 @@ export function TasksSection() {
     try {
       // 把当前筛选选择器（状态 + 分类）作为检索上下文一并传给后端。
       const res = await aiApi.search(q, { status: tab, category: category || undefined })
+      if (seq !== semanticSeqRef.current) return // 已有更新的检索，丢弃这次过期响应
       if (res.success && res.data) {
         setSemanticResults(res.data.items)
         setSemanticExplanation(res.data.explanation)
@@ -188,11 +193,12 @@ export function TasksSection() {
         addToast({ type: 'error', message: res.message || 'AI 服务暂时不可用' })
       }
     } catch {
+      if (seq !== semanticSeqRef.current) return
       setSemanticResults([])
       setSemanticExplanation(undefined)
       addToast({ type: 'error', message: 'AI 服务暂时不可用' })
     } finally {
-      setSemanticLoading(false)
+      if (seq === semanticSeqRef.current) setSemanticLoading(false)
     }
   }
 
@@ -367,7 +373,8 @@ export function TasksSection() {
     setSearchInput('')
     setAiCreateDraft(null)
     setAiCreateFor('')
-    loadTasks({ silent: true })
+    // 不显式 loadTasks：setSearch('') 会改变 loadTasks 依赖并由 effect 用「空搜索」重载，
+    // 直接调用会带着旧的 search 闭包发一次多余且错查的请求。
   }
 
   // 接受 AI 提议入库（供 AiDraftCard 的确认按钮调用）。
@@ -943,7 +950,7 @@ export function TasksSection() {
                   <Spinner size={14} /> AI 正在根据「{exactQuery}」生成任务提议…
                 </div>
               ) : aiCreateDraft ? (
-                <AiDraftCard draft={aiCreateDraft} onConfirm={createFromDraft} onDiscard={() => setAiCreateDraft(null)} />
+                <AiDraftCard key={aiCreateFor} draft={aiCreateDraft} onConfirm={createFromDraft} onDiscard={() => setAiCreateDraft(null)} />
               ) : null}
               <div style={{ display: 'flex', justifyContent: 'center', marginTop: aiCreateLoading || aiCreateDraft ? '16px' : 0 }}>
                 {manualCreateBtn}
