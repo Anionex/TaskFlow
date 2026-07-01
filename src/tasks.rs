@@ -142,6 +142,12 @@ pub fn clamp_star_rating(star: i16) -> i16 {
     star.clamp(0, 5)
 }
 
+/// 分页每页条数钳制：缺省 20，范围 [1, 200]。下界必须 ≥1，
+/// 否则 per_page=0 会在 total_pages 计算时整数除零 panic。
+fn clamp_per_page(per_page: Option<i64>) -> i64 {
+    per_page.unwrap_or(20).clamp(1, 200)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,6 +206,17 @@ mod tests {
             serde_json::from_str(r#"{"title":"t","deadline":"2026-06-25"}"#).unwrap();
         assert!(req.deadline.is_some());
     }
+
+    // ── 分页每页条数钳制 ─────────────────────────────────────────────────
+    // 回归：per_page=0 曾导致 total_pages=(total+per_page-1)/per_page 整数除零 panic。
+    #[test]
+    fn per_page_never_zero() {
+        assert_eq!(clamp_per_page(Some(0)), 1, "0 必须钳到 1，避免除零");
+        assert_eq!(clamp_per_page(Some(-5)), 1, "负数也钳到 1");
+        assert_eq!(clamp_per_page(None), 20, "缺省 20");
+        assert_eq!(clamp_per_page(Some(50)), 50);
+        assert_eq!(clamp_per_page(Some(9999)), 200, "上界 200");
+    }
 }
 
 // ── 辅助：序列化 Task ──────────────────────────────────────────────────────
@@ -236,7 +253,8 @@ pub async fn list_tasks(
     };
 
     let page = q.page.unwrap_or(1).max(1);
-    let per_page = q.per_page.unwrap_or(20).min(200);
+    // 下界钳到 1，避免 per_page=0 触发 total_pages 计算时的整数除零 panic。
+    let per_page = clamp_per_page(q.per_page);
     let offset = (page - 1) * per_page;
 
     // We build a fixed query supporting optional filters
