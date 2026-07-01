@@ -13,45 +13,49 @@ export function RecycleSection() {
 
   useEffect(() => { load() }, [])
 
-  async function load() {
-    setLoading(true)
+  async function load(opts?: { silent?: boolean }) {
+    if (!opts?.silent) setLoading(true)
     const res = await recycleApi.list()
     if (res.success && res.data) {
       const d = res.data as any
       setTasks(Array.isArray(d) ? d : (d.items ?? []))
     }
-    setLoading(false)
+    if (!opts?.silent) setLoading(false)
   }
 
   async function restore(id: string) {
+    // 乐观移除该行；失败静默重载恢复。
+    setTasks((ts) => ts.filter((t) => t.id !== id))
     const res = await recycleApi.restore(id)
     if (res.success) {
       addToast({ type: 'success', message: '已还原' })
-      load()
     } else {
       addToast({ type: 'error', message: res.message })
+      load({ silent: true })
     }
   }
 
   async function deletePermanent(id: string) {
     if (!window.confirm('永久删除后无法找回，确认？')) return
+    setTasks((ts) => ts.filter((t) => t.id !== id))
     const res = await recycleApi.deletePermanent(id)
     if (res.success) {
       addToast({ type: 'success', message: '已永久删除' })
-      load()
     } else {
       addToast({ type: 'error', message: res.message })
+      load({ silent: true })
     }
   }
 
   async function clearAll() {
     if (!window.confirm('清空回收站后无法找回，确认？')) return
+    setTasks([])
     const res = await recycleApi.clearAll()
     if (res.success) {
       addToast({ type: 'success', message: '回收站已清空' })
-      load()
     } else {
       addToast({ type: 'error', message: res.message })
+      load({ silent: true })
     }
   }
 

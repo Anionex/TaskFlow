@@ -30,6 +30,20 @@ function isOverdue(task: Task) {
   return new Date(task.deadline) < new Date()
 }
 
+// 乐观翻转某任务的完成态：命中顶层任务直接翻转；命中子任务则翻转并同步父任务进度计数。
+function flipCompleted(list: Task[], id: string): Task[] {
+  return list.map((t) => {
+    if (t.id === id) return { ...t, completed: !t.completed }
+    if (t.subtasks?.some((s) => s.id === id)) {
+      const subtasks = t.subtasks.map((s) =>
+        s.id === id ? { ...s, completed: !s.completed } : s
+      )
+      return { ...t, subtasks, subtask_completed: subtasks.filter((s) => s.completed).length }
+    }
+    return t
+  })
+}
+
 function CategoryPill({ cat }: { cat: Category }) {
   return (
     <span style={{
@@ -91,7 +105,6 @@ export function TasksSection() {
 
   const [editTask, setEditTask] = useState<Task | null>(null)
   const [editDraft, setEditDraft] = useState(emptyDraft())
-  const [editLoading, setEditLoading] = useState(false)
 
   const [rewriteTask, setRewriteTask] = useState<Task | null>(null)
   const [rewriteLoading, setRewriteLoading] = useState(false)
@@ -102,8 +115,8 @@ export function TasksSection() {
   const [decomposeResult, setDecomposeResult] = useState<DecomposeResult | null>(null)
   const [decomposeConfirming, setDecomposeConfirming] = useState(false)
 
-  const loadTasks = useCallback(async () => {
-    setLoading(true)
+  const loadTasks = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true)
     setSelected(new Set())
     try {
       const res = await tasksApi.list({
@@ -120,9 +133,15 @@ export function TasksSection() {
         setTotal(res.data.total)
       }
     } finally {
-      setLoading(false)
+      if (!opts?.silent) setLoading(false)
     }
   }, [tab, category, sortBy, search, page])
+
+  // 同步更新普通列表与语义检索结果两处，避免语义模式下操作不生效。
+  const patchLists = useCallback((fn: (list: Task[]) => Task[]) => {
+    setTasks(fn)
+    setSemanticResults(fn)
+  }, [])
 
   useEffect(() => { loadTasks() }, [loadTasks])
 
@@ -184,24 +203,43 @@ export function TasksSection() {
   }
 
   async function toggleTask(id: string) {
-    await tasksApi.toggle(id)
-    loadTasks()
+    // 乐观翻转：勾选后留在原地只划线；失败再翻回并提示。
+    patchLists((l) => flipCompleted(l, id))
+    const res = await tasksApi.toggle(id)
+    if (!res.success) {
+      patchLists((l) => flipCompleted(l, id))
+      addToast({ type: 'error', message: res.message || '操作失败' })
+    }
   }
 
   async function deleteTask(id: string) {
-    await tasksApi.delete(id)
-    addToast({ type: 'success', message: '已移至回收站' })
-    loadTasks()
+    // 乐观移除该行；失败则静默重载恢复真实列表。
+    patchLists((l) => l.filter((t) => t.id !== id))
+    setTotal((n) => Math.max(0, n - 1))
+    const res = await tasksApi.delete(id)
+    if (res.success) {
+      addToast({ type: 'success', message: '已移至回收站' })
+    } else {
+      addToast({ type: 'error', message: '删除失败' })
+      loadTasks({ silent: true })
+    }
   }
 
   async function handleBatchDelete() {
     if (selected.size === 0) return
+    const ids = Array.from(selected)
     setBatchDeleting(true)
+    patchLists((l) => l.filter((t) => !selected.has(t.id)))
+    setTotal((n) => Math.max(0, n - ids.length))
+    setSelected(new Set())
     try {
-      await tasksApi.batchDelete(Array.from(selected))
-      addToast({ type: 'success', message: `已删除 ${selected.size} 个任务` })
-      setSelected(new Set())
-      loadTasks()
+      const res = await tasksApi.batchDelete(ids)
+      if (res.success) {
+        addToast({ type: 'success', message: `已删除 ${ids.length} 个任务` })
+      } else {
+        addToast({ type: 'error', message: '删除失败' })
+        loadTasks({ silent: true })
+      }
     } finally {
       setBatchDeleting(false)
     }
@@ -209,9 +247,16 @@ export function TasksSection() {
 
   async function handleClearStatus() {
     if (!window.confirm(`确认清空所有"${tab === 'completed' ? '已完成' : tab === 'expired' ? '已过期' : '待办'}"任务？`)) return
-    await tasksApi.clear(tab as any)
-    addToast({ type: 'success', message: '已清空' })
-    loadTasks()
+    patchLists(() => [])
+    setTotal(0)
+    setSelected(new Set())
+    const res = await tasksApi.clear(tab as any)
+    if (res.success) {
+      addToast({ type: 'success', message: '已清空' })
+    } else {
+      addToast({ type: 'error', message: '清空失败' })
+      loadTasks({ silent: true })
+    }
   }
 
   async function handleCreate() {
@@ -230,7 +275,7 @@ export function TasksSection() {
         addToast({ type: 'success', message: '任务已创建' })
         setShowCreate(false)
         setCreateDraft(emptyDraft())
-        loadTasks()
+        loadTasks({ silent: true })
       } else {
         addToast({ type: 'error', message: res.message })
       }
@@ -253,26 +298,38 @@ export function TasksSection() {
 
   async function handleEdit() {
     if (!editTask || !editDraft.title.trim()) return
-    setEditLoading(true)
-    try {
-      const res = await tasksApi.update(editTask.id, {
-        title: editDraft.title,
-        description: editDraft.description,
-        category: editDraft.category,
-        star_rating: editDraft.star_rating,
-        start_date: editDraft.start_date || undefined,
-        deadline: editDraft.deadline || undefined,
-      })
-      if (res.success) {
-        addToast({ type: 'success', message: '已更新' })
-        setEditTask(null)
-        loadTasks()
-      } else {
-        addToast({ type: 'error', message: res.message })
-      }
-    } finally {
-      setEditLoading(false)
+    const id = editTask.id
+    // 乐观改本地字段并立即关闭弹窗；请求回来后静默重载校正（日期归一化、过期态等派生字段）。
+    patchLists((l) =>
+      l.map((t) =>
+        t.id === id
+          ? {
+              ...t,
+              title: editDraft.title,
+              description: editDraft.description,
+              category: editDraft.category,
+              star_rating: editDraft.star_rating,
+              start_date: editDraft.start_date || null,
+              deadline: editDraft.deadline || null,
+            }
+          : t
+      )
+    )
+    setEditTask(null)
+    const res = await tasksApi.update(id, {
+      title: editDraft.title,
+      description: editDraft.description,
+      category: editDraft.category,
+      star_rating: editDraft.star_rating,
+      start_date: editDraft.start_date || undefined,
+      deadline: editDraft.deadline || undefined,
+    })
+    if (res.success) {
+      addToast({ type: 'success', message: '已更新' })
+    } else {
+      addToast({ type: 'error', message: res.message })
     }
+    loadTasks({ silent: true })
   }
 
   async function handleRewrite() {
@@ -292,11 +349,18 @@ export function TasksSection() {
 
   async function applyRewrite() {
     if (!rewriteTask || !rewriteResult) return
-    await tasksApi.update(rewriteTask.id, { title: rewriteResult.suggested_title })
-    addToast({ type: 'success', message: '标题已更新' })
+    const id = rewriteTask.id
+    const newTitle = rewriteResult.suggested_title
+    patchLists((l) => l.map((t) => (t.id === id ? { ...t, title: newTitle } : t)))
     setRewriteTask(null)
     setRewriteResult(null)
-    loadTasks()
+    const res = await tasksApi.update(id, { title: newTitle })
+    if (res.success) {
+      addToast({ type: 'success', message: '标题已更新' })
+    } else {
+      addToast({ type: 'error', message: res.message || '更新失败' })
+      loadTasks({ silent: true })
+    }
   }
 
   async function handleDecompose() {
@@ -330,7 +394,7 @@ export function TasksSection() {
         addToast({ type: 'success', message: '任务组已创建' })
         setDecomposeTask(null)
         setDecomposeResult(null)
-        loadTasks()
+        loadTasks({ silent: true })
       } else {
         addToast({ type: 'error', message: res.message })
       }
@@ -773,8 +837,8 @@ export function TasksSection() {
             </div>
             <ModalFooter>
               <button onClick={() => setEditTask(null)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-pill)', padding: '6px 14px', fontSize: 'var(--text-sm)', color: 'var(--text-muted)', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>取消</button>
-              <button onClick={handleEdit} disabled={editLoading || !editDraft.title.trim()} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 'var(--radius-pill)', padding: '6px 16px', fontSize: 'var(--text-sm)', color: 'var(--on-accent)', cursor: editLoading ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)' }}>
-                {editLoading && <Spinner size={12} />} 保存
+              <button onClick={handleEdit} disabled={!editDraft.title.trim()} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 'var(--radius-pill)', padding: '6px 16px', fontSize: 'var(--text-sm)', color: 'var(--on-accent)', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>
+                保存
               </button>
             </ModalFooter>
           </>

@@ -61,15 +61,15 @@ export function TemplatesSection() {
 
   useEffect(() => { load() }, [])
 
-  async function load() {
-    setLoading(true)
+  async function load(opts?: { silent?: boolean }) {
+    if (!opts?.silent) setLoading(true)
     const res = await templatesApi.list()
     if (res.success && res.data) {
       // Backend may return { items: [] } or Template[]
       const d = res.data as any
       setTemplates(Array.isArray(d) ? d : (d.items ?? []))
     }
-    setLoading(false)
+    if (!opts?.silent) setLoading(false)
   }
 
   function openCreate() {
@@ -86,34 +86,44 @@ export function TemplatesSection() {
 
   async function handleSave() {
     if (!draft.title?.trim()) return
-    setSaving(true)
-    try {
-      let res
-      if (editing) {
-        res = await templatesApi.update(editing.id, draft)
-      } else {
-        res = await templatesApi.create(draft)
+    if (editing) {
+      // 乐观改本地并立即关闭弹窗；请求回来后静默重载校正。
+      const id = editing.id
+      const patched = { ...editing, ...draft } as Template
+      setTemplates((ts) => ts.map((t) => (t.id === id ? patched : t)))
+      setShowForm(false)
+      const res = await templatesApi.update(id, draft)
+      if (res.success) addToast({ type: 'success', message: '习惯已更新' })
+      else addToast({ type: 'error', message: res.message })
+      load({ silent: true })
+    } else {
+      // 新建需服务端 id，静默重载（不再顶掉整个列表）。
+      setSaving(true)
+      try {
+        const res = await templatesApi.create(draft)
+        if (res.success) {
+          addToast({ type: 'success', message: '习惯已创建' })
+          setShowForm(false)
+          load({ silent: true })
+        } else {
+          addToast({ type: 'error', message: res.message })
+        }
+      } finally {
+        setSaving(false)
       }
-      if (res.success) {
-        addToast({ type: 'success', message: editing ? '习惯已更新' : '习惯已创建' })
-        setShowForm(false)
-        load()
-      } else {
-        addToast({ type: 'error', message: res.message })
-      }
-    } finally {
-      setSaving(false)
     }
   }
 
   async function handleDelete(id: string) {
     if (!window.confirm('确认删除此习惯？')) return
+    // 乐观移除该行；失败静默重载恢复。
+    setTemplates((ts) => ts.filter((t) => t.id !== id))
     const res = await templatesApi.delete(id)
     if (res.success) {
       addToast({ type: 'success', message: '已删除' })
-      load()
     } else {
       addToast({ type: 'error', message: res.message })
+      load({ silent: true })
     }
   }
 
@@ -134,7 +144,7 @@ export function TemplatesSection() {
         } else {
           addToast({ type: 'info', message: '暂无可生成的任务，请先创建习惯' })
         }
-        load()
+        load({ silent: true })
       } else {
         addToast({ type: 'error', message: res.message || '生成失败' })
       }
