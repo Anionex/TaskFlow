@@ -11,17 +11,21 @@
 
 use axum::{
     extract::{Json, State},
-    http::{HeaderMap, StatusCode},
+    http::HeaderMap,
+    response::sse::{Event, KeepAlive, Sse},
 };
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::convert::Infallible;
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::StreamExt;
 use uuid::Uuid;
 
-use crate::ai::{chat_with_tools, get_llm_config, user_context_brief};
+use crate::ai::{get_llm_config, user_context_brief, LlmConfig};
 use crate::auth::current_user;
 use crate::models::Task;
-use crate::response::{err, ok, ApiResponse};
 use crate::state::SharedState;
 use crate::tasks::{clamp_star_rating, is_valid_category, status_filter_sql};
 
@@ -168,7 +172,7 @@ fn system_message(now: &str, brief: &str) -> Value {
 - 涉及"周一/本周/最近"等时间或关键词筛选时，用 list_tasks 拉取后，基于任务的 created_at / deadline 自行判断，再做统计或归纳。
 - 需要新增、修改、删除任务时，调用对应的写工具（create_task/update_task/delete_task）。系统会把这次改动展示给用户确认，**用户确认后才真正生效**，所以参数要完整、准确。
 - 如果用户拒绝了某次修改，请礼貌询问他希望怎么调整，不要原样重复同一个改动。
-- 最终回答用**简洁中文纯文本**，不要用 Markdown 表格、不要用 # 标题、不要堆叠符号；需要分项时用「· 」开头的短句，一行一项。
+- 最终回答用简洁中文，可以自由使用 Markdown（列表、**加粗**、表格、标题等）让信息清晰易读；按内容需要排版即可，不必强行套用格式。
 
 {brief}"#
     );
@@ -249,25 +253,7 @@ fn dangling_tool_call_ids(messages: &[Value]) -> Vec<String> {
 /// 宽松解析模型给的时间字符串：RFC3339（带时区）/ 纯日期 / "日期 时:分[:秒]"。
 /// 纯日期与无时区的形式按北京时区(UTC+8)解释，与系统其它处口径一致。
 fn parse_dt_str(s: &str) -> Option<DateTime<Utc>> {
-    use chrono::{NaiveDate, NaiveDateTime, TimeZone};
-    let s = s.trim();
-    if s.is_empty() {
-        return None;
-    }
-    if let Ok(d) = DateTime::parse_from_rfc3339(s) {
-        return Some(d.with_timezone(&Utc));
-    }
-    let off = crate::util::beijing_offset();
-    if let Ok(date) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
-        let ndt = date.and_hms_opt(0, 0, 0)?;
-        return off.from_local_datetime(&ndt).single().map(|d| d.with_timezone(&Utc));
-    }
-    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"] {
-        if let Ok(ndt) = NaiveDateTime::parse_from_str(s, fmt) {
-            return off.from_local_datetime(&ndt).single().map(|d| d.with_timezone(&Utc));
-        }
-    }
-    None
+    crate::util::parse_flexible_date(s)
 }
 
 fn parse_dt(v: Option<&Value>) -> Option<DateTime<Utc>> {
@@ -615,78 +601,220 @@ fn propose_summary(name: &str, args: &Value, current: Option<&Value>) -> String 
     }
 }
 
-// ── 主处理器 ────────────────────────────────────────────────────────────────
+// ── SSE 流式：LLM 调用 ──────────────────────────────────────────────────────
+
+fn sse(name: &str, data: Value) -> Result<Event, Infallible> {
+    Ok(Event::default().event(name).data(data.to_string()))
+}
+
+/// 把流式返回的 tool_call 增量按 index 累加成完整对象。
+fn accumulate_tool_call(acc: &mut Vec<Value>, d: &Value) {
+    let idx = d.get("index").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+    while acc.len() <= idx {
+        acc.push(json!({"id": "", "type": "function", "function": {"name": "", "arguments": ""}}));
+    }
+    let slot = &mut acc[idx];
+    if let Some(id) = d.get("id").and_then(|v| v.as_str()) {
+        if !id.is_empty() {
+            slot["id"] = json!(id);
+        }
+    }
+    if let Some(f) = d.get("function") {
+        if let Some(n) = f.get("name").and_then(|v| v.as_str()) {
+            if !n.is_empty() {
+                slot["function"]["name"] = json!(n);
+            }
+        }
+        if let Some(a) = f.get("arguments").and_then(|v| v.as_str()) {
+            let cur = slot["function"]["arguments"].as_str().unwrap_or("").to_string();
+            slot["function"]["arguments"] = json!(cur + a);
+        }
+    }
+}
+
+/// 流式调用 LLM：边收边把 content/reasoning 增量通过 `tx` 发给前端（delta/thinking 事件），
+/// 同时累加出完整的 assistant 消息（含 tool_calls）返回给循环继续驱动。
+async fn stream_llm(
+    cfg: &LlmConfig,
+    messages: &[Value],
+    tools: &Value,
+    tx: &mpsc::Sender<Result<Event, Infallible>>,
+) -> Result<Value, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let url = format!("{}/chat/completions", cfg.base_url.trim_end_matches('/'));
+    let body = json!({
+        "model": cfg.model,
+        "messages": messages,
+        "tools": tools,
+        "tool_choice": "auto",
+        "max_tokens": 1500,
+        "temperature": 0,
+        "stream": true
+    });
+
+    let resp = client
+        .post(&url)
+        .bearer_auth(&cfg.api_key)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("LLM HTTP {status}: {text}"));
+    }
+
+    let mut stream = resp.bytes_stream();
+    // 用字节缓冲按行切分：'\n' 是 ASCII，不会落在多字节 UTF-8 中间，故整行必为合法 UTF-8。
+    let mut buf: Vec<u8> = Vec::new();
+    let mut content = String::new();
+    let mut reasoning = String::new();
+    let mut tool_calls: Vec<Value> = Vec::new();
+
+    while let Some(chunk) = stream.next().await {
+        let bytes = chunk.map_err(|e| e.to_string())?;
+        buf.extend_from_slice(&bytes);
+        while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
+            let line_bytes: Vec<u8> = buf.drain(..=pos).collect();
+            let line = String::from_utf8_lossy(&line_bytes);
+            let line = line.trim();
+            let Some(data) = line.strip_prefix("data:") else {
+                continue;
+            };
+            let data = data.trim();
+            if data == "[DONE]" {
+                continue;
+            }
+            let Ok(chunk_json) = serde_json::from_str::<Value>(data) else {
+                continue;
+            };
+            let delta = &chunk_json["choices"][0]["delta"];
+            if let Some(c) = delta.get("content").and_then(|v| v.as_str()) {
+                if !c.is_empty() {
+                    content.push_str(c);
+                    let _ = tx.send(sse("delta", json!({"text": c}))).await;
+                }
+            }
+            if let Some(r) = delta.get("reasoning_content").and_then(|v| v.as_str()) {
+                if !r.is_empty() {
+                    reasoning.push_str(r);
+                    let _ = tx.send(sse("thinking", json!({"text": r}))).await;
+                }
+            }
+            if let Some(tcs) = delta.get("tool_calls").and_then(|v| v.as_array()) {
+                for tc in tcs {
+                    accumulate_tool_call(&mut tool_calls, tc);
+                }
+            }
+        }
+    }
+
+    let mut msg = json!({"role": "assistant", "content": content});
+    if !tool_calls.is_empty() {
+        msg["tool_calls"] = json!(tool_calls);
+    }
+    if !reasoning.is_empty() {
+        msg["reasoning_content"] = json!(reasoning);
+    }
+    Ok(msg)
+}
+
+// ── 主处理器（SSE 流式） ────────────────────────────────────────────────────
 
 pub async fn agent_chat(
     State(state): State<SharedState>,
     headers: HeaderMap,
     Json(req): Json<AgentReq>,
-) -> (StatusCode, Json<ApiResponse>) {
-    let uid = match current_user(&headers, &state).await {
-        Ok(u) => u,
-        Err(e) => return e,
-    };
+) -> impl axum::response::IntoResponse {
+    let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(64);
 
-    // 体量护栏。注意：仅在"发起新消息"时拦截；确认/拒绝(decision)必须始终放行，
-    // 否则一条很大的历史会把已经弹出的待确认写操作永久卡死、无法接受或拒绝。
-    if req.decision.is_none() {
-        if req.messages.len() > MAX_MESSAGES {
-            return (StatusCode::BAD_REQUEST, err("对话过长，请新开一段对话"));
+    tokio::spawn(async move {
+        // 鉴权失败：SSE 无法回 401，改发一条 error 事件由前端处理。
+        let uid = match current_user(&headers, &state).await {
+            Ok(u) => u,
+            Err(_) => {
+                let _ = tx.send(sse("error", json!({"message": "未登录，请重新登录"}))).await;
+                return;
+            }
+        };
+
+        // 体量护栏（仅拦新消息；decision 必须放行以便落地已弹出的待确认写操作）。
+        if req.decision.is_none() {
+            let over = req.messages.len() > MAX_MESSAGES
+                || req.messages.iter().map(|m| m.to_string().len()).sum::<usize>() > MAX_CHARS;
+            if over {
+                let _ = tx.send(sse("error", json!({"message": "对话过长，请新开一段对话"}))).await;
+                return;
+            }
         }
-        let approx: usize = req.messages.iter().map(|m| m.to_string().len()).sum();
-        if approx > MAX_CHARS {
-            return (StatusCode::BAD_REQUEST, err("对话过长，请新开一段对话"));
-        }
+
+        let cfg = get_llm_config(&headers, &state, uid).await;
+        let brief = user_context_brief(&state, uid).await;
+        let now = crate::util::beijing_now_label();
+        let tools = agent_tools();
+
+        let mut msgs: Vec<Value> = Vec::with_capacity(req.messages.len() + MAX_STEPS + 2);
+        msgs.push(system_message(&now, &brief));
+        msgs.extend(req.messages.into_iter());
+
+        run_agent_stream(state, uid, cfg, msgs, req.decision, req.user_input, tools, tx).await;
+    });
+
+    Sse::new(ReceiverStream::new(rx)).keep_alive(KeepAlive::default())
+}
+
+/// 一轮 agent 循环，把过程以 SSE 事件流式发出：
+/// start(新的模型段) / delta(答复增量) / thinking(推理增量) / tool(工具已执行) / done(收尾) / error。
+async fn run_agent_stream(
+    state: SharedState,
+    uid: Uuid,
+    cfg: LlmConfig,
+    mut msgs: Vec<Value>,
+    decision: Option<Decision>,
+    user_input: Option<String>,
+    tools: Value,
+    tx: mpsc::Sender<Result<Event, Infallible>>,
+) {
+    // 收尾：剥掉 system，发 done 事件。
+    async fn done(
+        tx: &mpsc::Sender<Result<Event, Infallible>>,
+        msgs: &[Value],
+        reply: Value,
+        pending: Value,
+    ) {
+        let out: Vec<&Value> = msgs.iter().skip(1).collect();
+        let _ = tx
+            .send(sse("done", json!({"messages": out, "reply": reply, "pending": pending})))
+            .await;
     }
 
-    let cfg = get_llm_config(&headers, &state, uid).await;
-    let tools = agent_tools();
-    let brief = user_context_brief(&state, uid).await;
-    let now = crate::util::beijing_now_label();
-
-    // 现拼最新 system；前端历史接其后。
-    let mut msgs: Vec<Value> = Vec::with_capacity(req.messages.len() + MAX_STEPS + 2);
-    msgs.push(system_message(&now, &brief));
-    msgs.extend(req.messages.into_iter());
-
-    let mut steps: Vec<Value> = Vec::new();
-
     // 1) 先落地上一条 pending 的确认/拒绝（若有）
-    if let Some(dec) = req.decision {
-        // 安全闸：只允许落地"当前真正悬空(未应答)的写工具调用"。
-        // 这同时挡住两类问题：① 客户端伪造历史里塞一个从未被提案的 tool_call 直接 approve；
-        // ② 写已执行(已应答)后用户/前端重试同一 decision 造成重复写——此时它已不在悬空集合里。
+    if let Some(dec) = decision {
+        // 安全闸：只允许落地"当前真正悬空(未应答)的写工具调用"，挡住伪造历史直接 approve，
+        // 以及写已执行后重发 decision 造成的重复写（此时已不在悬空集合里）。
         let dangling = dangling_tool_call_ids(&msgs);
         let is_pending_write = dangling.contains(&dec.tool_call_id)
             && find_tool_call(&msgs, &dec.tool_call_id)
                 .map(|(name, _)| is_write_tool(&name))
                 .unwrap_or(false);
         if !is_pending_write {
-            // 已处理过或本就不该执行：当作无操作，温和地继续，不重复落库。
-            let out: Vec<Value> = msgs.into_iter().skip(1).collect();
-            return (
-                StatusCode::OK,
-                ok(
-                    "ok",
-                    json!({
-                        "messages": out,
-                        "steps": [],
-                        "reply": "这个操作似乎已经处理过了，我们继续吧。",
-                        "pending": Value::Null,
-                    }),
-                ),
-            );
+            done(&tx, &msgs, json!("这个操作似乎已经处理过了，我们继续吧。"), Value::Null).await;
+            return;
         }
         let (name, args) = find_tool_call(&msgs, &dec.tool_call_id).expect("checked above");
         if dec.approved {
             match exec_write(&state, uid, &name, &args).await {
                 Ok(v) => {
-                    steps.push(tool_step(&name, &args, true, &v));
+                    let _ = tx.send(sse("tool", tool_step(&name, &args, true, &v))).await;
                     msgs.push(tool_result(&dec.tool_call_id, &v.to_string()));
                 }
                 Err(e) => {
                     let payload = json!({"error": e});
-                    steps.push(tool_step(&name, &args, false, &payload));
+                    let _ = tx.send(sse("tool", tool_step(&name, &args, false, &payload))).await;
                     msgs.push(tool_result(&dec.tool_call_id, &payload.to_string()));
                 }
             }
@@ -699,44 +827,30 @@ pub async fn agent_chat(
             };
             msgs.push(tool_result(&dec.tool_call_id, &content));
         }
-    } else if let Some(text) = req.user_input.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
-        // 容错：上一条 assistant 还挂着未应答的 tool_calls（用户没点确认就直接发问），
-        // 先给这些悬空调用补一条"已跳过"结果，保持 OpenAI 协议合法。
+    } else if let Some(text) = user_input.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
         for id in dangling_tool_call_ids(&msgs) {
             msgs.push(tool_result(&id, "用户未确认该操作，已跳过。"));
         }
         msgs.push(json!({"role": "user", "content": text}));
     } else {
-        return (StatusCode::BAD_REQUEST, err("缺少消息内容"));
+        done(&tx, &msgs, json!("缺少消息内容。"), Value::Null).await;
+        return;
     }
 
-    // 2) 工具循环
-    let mut reply: Option<String> = None;
-    let mut pending: Option<Value> = None;
-
+    // 2) 工具循环（流式）
     for _ in 0..MAX_STEPS {
-        let assistant = match chat_with_tools(&cfg, &msgs, &tools).await {
+        let _ = tx.send(sse("start", json!({}))).await;
+        let assistant = match stream_llm(&cfg, &msgs, &tools, &tx).await {
             Ok(m) => m,
             Err(e) => {
-                tracing::warn!("agent_chat LLM error: {e}");
-                // 关键：不要直接丢弃本轮进度。若此轮已落地了一次写操作（decision 已执行），
-                // 直接返回错误会让前端保留旧历史与待确认卡，用户重试→重复写。
-                // 改为以一条兜底回复正常结束本轮，让前端推进历史、清掉 pending。
-                let fallback = "智能服务暂时不稳定，这一步没能完成。你已确认的改动（如有）已经生效；可以稍后再试或换个说法。".to_string();
+                tracing::warn!("agent stream LLM error: {e}");
+                let fallback = "智能服务暂时不稳定，这一步没能完成。你已确认的改动（如有）已经生效；可以稍后再试或换个说法。";
                 msgs.push(json!({"role": "assistant", "content": fallback}));
-                reply = Some(fallback);
-                break;
+                done(&tx, &msgs, json!(fallback), Value::Null).await;
+                return;
             }
         };
         msgs.push(assistant.clone());
-
-        if let Some(r) = assistant
-            .get("reasoning_content")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.trim().is_empty())
-        {
-            steps.push(json!({"kind": "thinking", "text": r}));
-        }
 
         let tool_calls = assistant
             .get("tool_calls")
@@ -746,24 +860,16 @@ pub async fn agent_chat(
 
         if tool_calls.is_empty() {
             let content = assistant.get("content").and_then(|v| v.as_str()).unwrap_or("");
-            reply = Some(if content.trim().is_empty() {
-                "（我这边没有更多补充了，需要我帮你做点什么吗？）".to_string()
+            let reply = if content.trim().is_empty() {
+                json!("（我这边没有更多补充了，需要我帮你做点什么吗？）")
             } else {
-                content.to_string()
-            });
-            break;
+                json!(content)
+            };
+            done(&tx, &msgs, reply, Value::Null).await;
+            return;
         }
 
-        // 模型在调用工具的同时给了文字 → 当作思考折叠展示
-        if let Some(c) = assistant
-            .get("content")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.trim().is_empty())
-        {
-            steps.push(json!({"kind": "thinking", "text": c}));
-        }
-
-        // 一次只处理第一个工具调用；其余先补"已跳过"结果，保持协议合法。
+        // 一次只处理第一个工具调用；其余补"已跳过"结果，保持协议合法。
         if tool_calls.len() > 1 {
             for extra in &tool_calls[1..] {
                 if let Some(id) = extra.get("id").and_then(|v| v.as_str()) {
@@ -781,22 +887,23 @@ pub async fn agent_chat(
         if is_write_tool(&name) {
             let current = fetch_current_for_preview(&state, uid, &name, &args).await;
             let summary = propose_summary(&name, &args, current.as_ref());
-            pending = Some(json!({
+            let pending = json!({
                 "tool_call_id": tc_id,
                 "tool": name,
                 "summary": summary,
                 "preview": {"action": write_action(&name), "args": args, "current": current},
-            }));
-            break;
+            });
+            done(&tx, &msgs, Value::Null, pending).await;
+            return;
         } else if is_read_tool(&name) {
             match exec_read(&state, uid, &name, &args).await {
                 Ok(v) => {
-                    steps.push(tool_step(&name, &args, true, &v));
+                    let _ = tx.send(sse("tool", tool_step(&name, &args, true, &v))).await;
                     msgs.push(tool_result(&tc_id, &v.to_string()));
                 }
                 Err(e) => {
                     let payload = json!({"error": e});
-                    steps.push(tool_step(&name, &args, false, &payload));
+                    let _ = tx.send(sse("tool", tool_step(&name, &args, false, &payload))).await;
                     msgs.push(tool_result(&tc_id, &payload.to_string()));
                 }
             }
@@ -805,24 +912,13 @@ pub async fn agent_chat(
         }
     }
 
-    if reply.is_none() && pending.is_none() {
-        reply = Some("这次处理的步骤有点多，我先停一下。你可以把问题说得更具体一些。".into());
-    }
-
-    // 返回历史时剥掉 system（前端不持有 system）。
-    let out_messages: Vec<Value> = msgs.into_iter().skip(1).collect();
-    (
-        StatusCode::OK,
-        ok(
-            "ok",
-            json!({
-                "messages": out_messages,
-                "steps": steps,
-                "reply": reply,
-                "pending": pending,
-            }),
-        ),
+    done(
+        &tx,
+        &msgs,
+        json!("这次处理的步骤有点多，我先停一下。你可以把问题说得更具体一些。"),
+        Value::Null,
     )
+    .await;
 }
 
 #[cfg(test)]

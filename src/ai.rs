@@ -132,52 +132,6 @@ async fn call_llm(
     Ok(content)
 }
 
-/// 多轮带工具的对话补全（Agent 模式用）。与 `call_llm` 不同：
-/// 传入完整 messages 数组 + tools 定义，**不**强制 json_object，返回模型这一步的
-/// 完整 assistant message（含可能的 tool_calls / reasoning_content），由调用方驱动循环。
-pub(crate) async fn chat_with_tools(
-    cfg: &LlmConfig,
-    messages: &[Value],
-    tools: &Value,
-) -> Result<Value, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(90))
-        .build()
-        .map_err(|e| e.to_string())?;
-
-    let url = format!("{}/chat/completions", cfg.base_url.trim_end_matches('/'));
-
-    let body = json!({
-        "model": cfg.model,
-        "messages": messages,
-        "tools": tools,
-        "tool_choice": "auto",
-        "max_tokens": 1500,
-        "temperature": 0
-    });
-
-    let resp = client
-        .post(&url)
-        .bearer_auth(&cfg.api_key)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        return Err(format!("LLM HTTP {status}: {text}"));
-    }
-
-    let data: Value = resp.json().await.map_err(|e| e.to_string())?;
-    let msg = data["choices"][0]["message"].clone();
-    if msg.is_null() {
-        return Err("no message in LLM response".into());
-    }
-    Ok(msg)
-}
-
 fn ai_error() -> Json<ApiResponse> {
     err("智能服务暂时不可用，请手动填写")
 }
