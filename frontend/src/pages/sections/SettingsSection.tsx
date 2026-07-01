@@ -136,15 +136,17 @@ export function SettingsSection() {
 
   async function saveLlm() {
     setLlmLoading(true)
+    // base_url 去掉尾部斜杠，避免拼出 '...com//v1'。
+    const base = llmBase.trim().replace(/\/+$/, '')
     try {
       const res = await userApi.updateSettings({
         llm_api_key: llmKey.trim(),
         llm_model: llmModel.trim(),
-        llm_base_url: llmBase.trim(),
+        llm_base_url: base,
       })
       if (res.success) {
         // 账户保存成功后镜像到本地，供请求头快路径直接使用。
-        mirrorLlmToLocalStorage(llmKey.trim(), llmModel.trim(), llmBase.trim())
+        mirrorLlmToLocalStorage(llmKey.trim(), llmModel.trim(), base)
         addToast({ type: 'success', message: '大模型设置已保存（已同步到账户）' })
       } else {
         addToast({ type: 'error', message: res.message || '保存失败' })
