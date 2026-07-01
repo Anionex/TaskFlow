@@ -9,7 +9,7 @@ const PLATFORMS = [
     os: 'macOS',
     arch: 'Apple 芯片 (Apple Silicon)',
     file: `TaskFlow_${VERSION}_aarch64.dmg`,
-    note: '把 App 拖到「应用程序」后，若提示"已损坏/无法打开"（因未经 Apple 公证），打开「终端」执行 xattr -cr /Applications/TaskFlow.app 去除隔离标记，再双击打开即可（可把 App 拖进终端自动补全路径）。仅支持 Apple 芯片（M 系列）。',
+    note: '⚠️ 首次打开 macOS 可能提示「已损坏，无法打开」——安装包本身没有问题，这只是因为尚未通过 Apple 公证、系统对下载文件加了隔离标记。修复：把 App 拖到「应用程序」，打开「终端」执行 xattr -cr /Applications/TaskFlow.app（可把 App 拖进终端自动补全路径），再双击即可正常打开。仅支持 Apple 芯片（M 系列）。',
   },
   {
     os: 'Windows',
