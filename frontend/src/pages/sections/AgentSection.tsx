@@ -1,24 +1,32 @@
 /**
  * AgentSection — Agent 模式聊天页。
  * 多轮、有记忆（前端持有 messages）；模型可调用工具读写任务，写操作经确认卡确认后才生效。
+ * 回复走 SSE 流式，Markdown 边流边渲染。
  */
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Sparkles, ArrowUp } from 'lucide-react'
 import { Spinner } from '@/components/ui/Spinner'
 import { ToolTrace } from '@/components/agent/ToolTrace'
 import { PendingActionCard } from '@/components/agent/PendingActionCard'
+import { Markdown } from '@/components/agent/Markdown'
 import { agentApi } from '@/api/agent'
 import { useAppStore } from '@/store'
-import type { AgentMessage, AgentStep, AgentPending, AgentTurn } from '@/types'
+import type { AgentMessage, AgentStep, AgentPending } from '@/types'
 
 type ChatItem =
   | { type: 'user'; text: string }
   | { type: 'steps'; steps: AgentStep[] }
   | { type: 'assistant'; text: string }
 
+interface Payload {
+  messages: AgentMessage[]
+  user_input?: string
+  decision?: { tool_call_id: string; approved: boolean }
+}
+
 const EXAMPLES = [
   '拉出我每周一的待办清单（完成和没完成都要），看看出现最多的关键词是什么',
-  '帮我把所有已经过期的任务，星级都调成 5',
+  '用表格列出我所有待办任务的标题、分类和截止时间',
   '新建一个明天下午三点截止的工作任务：写周报',
 ]
 
@@ -30,16 +38,24 @@ export function AgentSection() {
   const [busy, setBusy] = useState(false)
   const [input, setInput] = useState('')
 
+  // 本轮进行中的流式状态（committed 前的临时展示）
+  const [liveSteps, setLiveSteps] = useState<AgentStep[]>([])
+  const [liveText, setLiveText] = useState('')
+  // 用 ref 做累加的真值来源，避免异步回调里的闭包陈旧问题
+  const liveStepsRef = useRef<AgentStep[]>([])
+  const liveTextRef = useRef('')
+  const liveThinkingRef = useRef('')
+
   const scrollRef = useRef<HTMLDivElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
   // 同步的在途标记：busy 是异步 state，单靠它无法挡住同一帧内的两次触发（双击/回车+点击）。
   const inFlightRef = useRef(false)
 
-  // 新内容到达时滚到底部
+  // 新内容到达时滚到底部（含流式增量）
   useEffect(() => {
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [transcript, pending, busy])
+  }, [transcript, pending, busy, liveText, liveSteps])
 
   // 输入框自适应高度
   useEffect(() => {
@@ -49,36 +65,96 @@ export function AgentSection() {
     ta.style.height = `${Math.min(160, Math.max(24, ta.scrollHeight))}px`
   }, [input])
 
-  const applyTurn = useCallback((turn: AgentTurn) => {
-    setMessages(turn.messages)
-    setTranscript((prev) => {
-      const next = [...prev]
-      if (turn.steps && turn.steps.length) next.push({ type: 'steps', steps: turn.steps })
-      if (turn.reply && turn.reply.trim()) next.push({ type: 'assistant', text: turn.reply })
-      return next
-    })
-    setPending(turn.pending ?? null)
+  const resetLive = useCallback(() => {
+    liveStepsRef.current = []
+    liveTextRef.current = ''
+    liveThinkingRef.current = ''
+    setLiveSteps([])
+    setLiveText('')
   }, [])
 
-  // 调用方负责同步置位 inFlightRef 后再进入；这里只在结束时复位。
+  const flushThinking = useCallback(() => {
+    if (liveThinkingRef.current.trim()) {
+      liveStepsRef.current = [...liveStepsRef.current, { kind: 'thinking', text: liveThinkingRef.current }]
+      setLiveSteps(liveStepsRef.current)
+      liveThinkingRef.current = ''
+    }
+  }, [])
+
+  // 调用方负责同步置位 inFlightRef 后再进入；这里在结束时复位。
   const runChat = useCallback(
-    async (payload: Parameters<typeof agentApi.chat>[0]) => {
+    async (payload: Payload) => {
       setBusy(true)
-      try {
-        const res = await agentApi.chat(payload)
-        if (!res.success || !res.data) {
-          addToast({ type: 'error', message: res.message || '助理暂时不可用' })
-          return
+      resetLive()
+      let terminal = false
+
+      await agentApi.chatStream(payload, {
+        onStart: () => {
+          // 新的模型段：清掉上一段的旁白（工具旁白已在 onTool 折叠）
+          liveTextRef.current = ''
+          liveThinkingRef.current = ''
+          setLiveText('')
+        },
+        onDelta: (t) => {
+          liveTextRef.current += t
+          setLiveText(liveTextRef.current)
+        },
+        onThinking: (t) => {
+          liveThinkingRef.current += t
+        },
+        onTool: (step) => {
+          flushThinking()
+          // 工具调用前若模型有旁白文字，折进思考轨迹
+          if (liveTextRef.current.trim()) {
+            liveStepsRef.current = [...liveStepsRef.current, { kind: 'thinking', text: liveTextRef.current }]
+            liveTextRef.current = ''
+            setLiveText('')
+          }
+          liveStepsRef.current = [...liveStepsRef.current, step]
+          setLiveSteps(liveStepsRef.current)
+        },
+        onDone: (d) => {
+          terminal = true
+          flushThinking()
+          const steps = liveStepsRef.current
+          const reply = (d.reply && String(d.reply)) || liveTextRef.current
+          setTranscript((prev) => {
+            const n = [...prev]
+            if (steps.length) n.push({ type: 'steps', steps })
+            if (reply && reply.trim()) n.push({ type: 'assistant', text: reply })
+            return n
+          })
+          setMessages(d.messages ?? [])
+          setPending(d.pending ?? null)
+          resetLive()
+        },
+        onError: (m) => {
+          terminal = true
+          addToast({ type: 'error', message: m })
+          resetLive()
+        },
+      })
+
+      // 流意外中断（既无 done 也无 error）：尽量留存已到内容，避免凭空消失
+      if (!terminal) {
+        flushThinking()
+        const steps = liveStepsRef.current
+        const partial = liveTextRef.current
+        if (steps.length || partial.trim()) {
+          setTranscript((prev) => {
+            const n = [...prev]
+            if (steps.length) n.push({ type: 'steps', steps })
+            if (partial.trim()) n.push({ type: 'assistant', text: partial })
+            return n
+          })
         }
-        applyTurn(res.data)
-      } catch {
-        addToast({ type: 'error', message: '网络错误，请稍后再试' })
-      } finally {
-        inFlightRef.current = false
-        setBusy(false)
+        resetLive()
       }
+
+      inFlightRef.current = false
+      setBusy(false)
     },
-    [addToast, applyTurn],
+    [addToast, resetLive, flushThinking],
   )
 
   function send(text: string) {
@@ -102,7 +178,9 @@ export function AgentSection() {
     void runChat({ messages, decision: { tool_call_id: pending.tool_call_id, approved: false } })
   }
 
-  const empty = transcript.length === 0 && !pending
+  const empty = transcript.length === 0 && !pending && !busy
+  // 流式期间「还没出任何内容」时显示的思考态
+  const thinkingOnly = busy && !pending && liveText === '' && liveSteps.length === 0
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -178,26 +256,28 @@ export function AgentSection() {
               }
               return (
                 <div key={i} className="tf-rise" style={{ margin: '0 0 18px' }}>
-                  <p style={{
-                    fontFamily: 'var(--font-voice)', fontSize: 'var(--text-base)',
-                    color: 'var(--text-primary)', lineHeight: 'var(--lh-normal)',
-                    margin: 0, whiteSpace: 'pre-wrap',
-                  }}>
-                    {item.text}
-                  </p>
+                  <Markdown text={item.text} />
                 </div>
               )
             })
+          )}
+
+          {/* 流式进行中的临时展示 */}
+          {liveSteps.length > 0 && <ToolTrace steps={liveSteps} />}
+          {liveText && (
+            <div style={{ margin: '0 0 18px' }}>
+              <Markdown text={liveText} />
+            </div>
           )}
 
           {pending && (
             <PendingActionCard pending={pending} busy={busy} onAccept={accept} onReject={reject} />
           )}
 
-          {busy && !pending && (
+          {thinkingOnly && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', margin: '4px 0 16px' }}>
               <Spinner size={14} />
-              <span style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-sm)' }}>正在处理…</span>
+              <span style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-sm)' }}>正在思考…</span>
             </div>
           )}
         </div>
