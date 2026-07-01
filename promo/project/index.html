@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>TaskFlow — 30s Promo</title>
+    <link rel="stylesheet" href="assets/fonts/fonts.css" />
+    <script src="assets/gsap.min.js"></script>
+    <style>
+      :root{
+        --ink:#1B1B19; --ink2:#565651; --muted:#8A8A83;
+        --canvas:#FCFCFB; --surface:#FFFFFF; --surface1:#FFFFFF; --surface2:#F5F5F3;
+        --accent:#4742B8; --accent2:#6C63E0; --accent-soft:rgba(71,66,184,.10);
+        --green:#2F6B45; --amber:#B8862F; --danger:#A8331F;
+        --line:rgba(24,24,16,.10); --line2:rgba(24,24,16,.16);
+        --serif:"Source Serif 4","Noto Serif SC",Georgia,serif;
+        --sans:"Hanken Grotesk","Noto Sans SC",system-ui,sans-serif;
+        --mono:"IBM Plex Mono",ui-monospace,monospace;
+        --shadow:0 40px 90px -30px rgba(27,27,25,.30), 0 8px 24px -8px rgba(27,27,25,.10);
+        --shadow-sm:0 10px 30px -12px rgba(27,27,25,.18);
+      }
+      *{margin:0;padding:0;box-sizing:border-box}
+      html,body{width:1920px;height:1080px;overflow:hidden;background:#000}
+      body{font-family:var(--sans);color:var(--ink);-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}
+      #root{position:relative;width:1920px;height:1080px;overflow:hidden}
+      .clip{position:absolute;inset:0}
+      .wrap{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center}
+      .pad{padding:0 132px}
+
+      .kicker{font-family:var(--mono);font-weight:500;font-size:20px;letter-spacing:.28em;color:var(--accent);text-transform:uppercase}
+      .h1{font-family:var(--serif);font-weight:600;color:var(--ink);line-height:1.06;letter-spacing:-.01em}
+      .sub{font-family:var(--sans);font-weight:400;color:var(--ink2);line-height:1.5}
+      .eyebrow{display:inline-block;font-family:var(--mono);font-weight:500;font-size:19px;letter-spacing:.14em;color:var(--accent)}
+      .word{display:inline-block;will-change:transform,opacity}
+
+      #bg-base{background:
+        radial-gradient(1200px 700px at 78% -8%, rgba(108,99,224,.10), transparent 60%),
+        radial-gradient(900px 600px at -6% 108%, rgba(71,66,184,.07), transparent 55%),
+        var(--canvas);}
+      .grid-dots{position:absolute;inset:0;opacity:.5;
+        background-image:radial-gradient(rgba(27,27,25,.05) 1.4px, transparent 1.4px);background-size:46px 46px;}
+
+      /* frames */
+      .win{position:relative;background:var(--surface);border-radius:16px;overflow:hidden;
+        box-shadow:var(--shadow);border:1px solid rgba(27,27,25,.06);will-change:transform,opacity}
+      .win-bar{height:44px;background:#F3F3F1;display:flex;align-items:center;gap:9px;padding:0 18px;border-bottom:1px solid rgba(27,27,25,.05)}
+      .dot{width:12px;height:12px;border-radius:50%}
+      .win-url{margin-left:16px;height:24px;padding:0 16px;display:flex;align-items:center;
+        background:#E9E9E6;border-radius:999px;font-family:var(--mono);font-size:14px;color:#9A9A93}
+      .win-shot{overflow:hidden;background:#fff}
+      .win-shot img{display:block;width:100%;height:100%;object-fit:cover;will-change:transform}
+      .phone{position:relative;border-radius:46px;background:#111114;padding:12px;box-shadow:var(--shadow);will-change:transform,opacity}
+      .phone-screen{border-radius:34px;overflow:hidden;background:#fff;position:relative}
+      .phone-screen img{display:block;width:100%;height:100%;object-fit:cover;object-position:top;will-change:transform}
+      .notch{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:96px;height:12px;border-radius:999px;background:#111114;z-index:3}
+
+      /* generic card */
+      .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-sm);will-change:transform,opacity}
+
+      /* SmartInput (native) */
+      .si{background:var(--surface);border:1px solid var(--accent);border-radius:12px;padding:15px 19px;box-shadow:var(--shadow-sm)}
+      .si-label{display:flex;align-items:center;gap:7px;font-size:15px;color:var(--muted);margin-bottom:9px}
+      .si-text{font-size:25px;color:var(--ink);line-height:1.4;min-height:50px}
+      .si-caret{display:inline-block;width:3px;height:24px;transform:translateY(5px);background:var(--accent);margin-left:3px;border-radius:2px}
+      .si-underline{height:1px;background:var(--accent);margin:9px 0 11px}
+      .si-foot{display:flex;align-items:center;justify-content:space-between}
+      .si-hint{font-size:14px;color:var(--muted)}
+      .pill-accent{display:inline-flex;align-items:center;gap:6px;background:var(--accent);color:#fff;font-family:var(--sans);
+        font-weight:500;font-size:16px;padding:8px 18px;border-radius:999px}
+
+      /* AI draft card (native) */
+      .draft{position:relative;background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--accent);
+        border-radius:12px;padding:14px 19px;box-shadow:var(--shadow-sm);will-change:transform,opacity}
+      .draft-top{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--muted);margin-bottom:10px}
+      .field{border:1px solid var(--line);border-radius:8px;padding:8px 13px;font-size:18px;color:var(--ink);background:var(--surface)}
+      .field.desc{color:var(--ink2);font-size:15px;margin-top:7px}
+      .draft-row{display:flex;align-items:center;gap:13px;margin-top:11px}
+      .chip-cat{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line2);border-radius:7px;padding:5px 12px;font-size:15px;color:var(--ink2)}
+      .stars{display:flex;gap:3px;font-size:19px;line-height:1}
+      .star{color:var(--line2);will-change:transform,color}
+      .star.on{color:var(--accent)}
+      .date-chip{font-family:var(--mono);font-size:14px;color:var(--muted);border:1px solid var(--line);border-radius:7px;padding:5px 11px}
+      .draft-btns{display:flex;gap:9px;margin-top:13px}
+      .btn-ghost{display:inline-flex;align-items:center;gap:5px;background:none;border:1px solid var(--line);border-radius:999px;padding:6px 15px;font-size:15px;color:var(--muted)}
+      .btn-accent{display:inline-flex;align-items:center;gap:5px;background:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:6px 16px;font-size:15px;color:#fff}
+
+      /* Agent chat (native) */
+      .agent-head{display:flex;align-items:center;gap:10px;font-family:var(--sans);font-weight:500;font-size:30px;color:var(--ink)}
+      .bubble-user{align-self:flex-end;max-width:70%;background:var(--accent-soft);border-radius:16px;padding:14px 20px;font-size:24px;color:var(--ink);line-height:1.4;will-change:transform,opacity}
+      .trace{display:inline-flex;align-items:center;gap:9px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:8px 18px;font-size:19px;color:var(--ink2);box-shadow:var(--shadow-sm);will-change:transform,opacity}
+      .assistant{font-family:var(--serif);font-size:25px;color:var(--ink);line-height:1.5;max-width:78%;will-change:transform,opacity}
+      .pending{background:var(--surface);border:1px solid var(--line2);border-left:3px solid var(--accent);border-radius:14px;padding:22px 26px;box-shadow:var(--shadow-sm);will-change:transform,opacity}
+      .pending-h{display:flex;align-items:center;gap:8px;font-size:20px;font-weight:500;color:var(--accent);margin-bottom:14px}
+      .pending-sum{font-family:var(--serif);font-size:26px;color:var(--ink);margin-bottom:16px}
+      .diff{display:flex;gap:12px;align-items:baseline;font-size:22px;margin-bottom:8px}
+      .diff .k{color:var(--muted);min-width:56px}
+      .diff .old{color:var(--muted);text-decoration:line-through}
+      .diff .to{color:var(--muted)}
+      .diff .new{color:var(--ink)}
+      .done-line{display:inline-flex;align-items:center;gap:9px;color:var(--green);font-size:22px;font-weight:500;will-change:opacity,transform}
+
+      /* S4 breakdown */
+      .callcard{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:34px 40px;will-change:transform,opacity}
+      .subrow{display:flex;align-items:center;gap:16px;padding:15px 0;border-bottom:1px solid var(--line);will-change:transform,opacity}
+      .subrow:last-child{border-bottom:none}
+      .sck{width:26px;height:26px;border-radius:7px;flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;border:2px solid var(--line2);color:#fff;font-size:16px}
+      .sck.done{background:var(--green);border-color:var(--green)}
+      .subttl{font-family:var(--sans);font-size:27px;color:var(--ink)}
+      .subttl.done{color:var(--muted);text-decoration:line-through;text-decoration-color:rgba(138,138,131,.5)}
+
+      .statnum{font-family:var(--mono);font-weight:600;line-height:1;letter-spacing:-.02em}
+      .confetti{position:absolute;width:16px;height:16px;border-radius:3px;will-change:transform,opacity}
+
+      /* logo / cta */
+      .wordmark{font-family:var(--sans);font-weight:600;letter-spacing:-.02em;color:var(--ink)}
+      .cta{display:inline-flex;align-items:center;gap:12px;background:var(--accent);color:#fff;font-family:var(--sans);
+        font-weight:600;font-size:30px;padding:18px 36px;border-radius:999px;box-shadow:0 20px 44px -14px rgba(71,66,184,.6);will-change:transform,opacity}
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-width="1920" data-height="1080" data-duration="31" data-fps="30">
+
+      <div id="bg-base" class="clip" data-start="0" data-duration="31" data-track-index="0">
+        <div class="grid-dots"></div>
+      </div>
+
+      <!-- S1 · HOOK (native typing) -->
+      <section id="s1" class="clip" data-start="0" data-duration="3.6" data-track-index="1">
+        <div class="wrap pad">
+          <div class="kicker" id="s1-kicker" style="margin-bottom:40px">TaskFlow</div>
+          <div style="font-family:var(--serif);font-weight:500;font-size:72px;line-height:1.28;color:var(--ink)"><span id="s1-typed"></span><span class="si-caret" id="s1-caret" style="height:60px"></span></div>
+          <div class="sub" id="s1-hint" style="font-size:26px;margin-top:44px;color:var(--muted)">脑子里塞满了事，却不知从哪下手。</div>
+        </div>
+      </section>
+
+      <!-- S2 · AI PARSE (native: SmartInput -> draft cards) -->
+      <section id="s2" class="clip" data-start="3.3" data-duration="4.9" data-track-index="2">
+        <div class="wrap" style="flex-direction:row;align-items:center;padding:0 130px;gap:64px">
+          <div style="width:33%">
+            <div class="eyebrow" id="s2-eye" style="margin-bottom:24px">用自然语言，说出来就好</div>
+            <h1 class="h1" id="s2-h1" style="font-size:76px"><span class="word">一句话，</span><span class="word">全部分好</span></h1>
+            <div class="sub" id="s2-sub" style="font-size:26px;margin-top:26px;max-width:440px">标题、分类、星级、时间，AI 自动解析成可编辑草稿，确认后才入库。</div>
+          </div>
+          <div style="width:67%">
+            <div class="si" id="s2-si" style="max-width:640px">
+              <div class="si-label"><span style="color:var(--accent)">✦</span> 智能输入 — 用自然语言描述任务</div>
+              <div class="si-text"><span id="s2-typed"></span><span class="si-caret" id="s2-caret"></span></div>
+              <div class="si-underline"></div>
+              <div class="si-foot"><span class="si-hint" id="s2-hint">一件或多件，由系统判断</span><span class="pill-accent" id="s2-btn">✦ 整理</span></div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:12px;margin-top:16px;max-width:640px">
+              <div class="draft" id="s2-c1">
+                <div class="draft-top"><span style="color:var(--accent)">✦</span> 已整理为可编辑草稿，确认前可修改任意字段</div>
+                <div class="field">跟设计团队过新首页</div>
+                <div class="field desc">明天下午三点</div>
+                <div class="draft-row">
+                  <span class="chip-cat">工作</span>
+                  <span class="stars" data-fill="4"><span class="star">★</span><span class="star">★</span><span class="star">★</span><span class="star">★</span><span class="star">★</span></span>
+                  <span class="date-chip">07-03</span>
+                </div>
+                <div class="draft-btns"><span class="btn-ghost">✕ 放弃</span><span class="btn-accent">✓ 确认入库</span></div>
+              </div>
+              <div class="draft" id="s2-c2">
+                <div class="draft-top"><span style="color:var(--accent)">✦</span> 已整理为可编辑草稿，确认前可修改任意字段</div>
+                <div class="field">完成季度报告初稿</div>
+                <div class="field desc">本周五前</div>
+                <div class="draft-row">
+                  <span class="chip-cat">工作</span>
+                  <span class="stars" data-fill="5"><span class="star">★</span><span class="star">★</span><span class="star">★</span><span class="star">★</span><span class="star">★</span></span>
+                  <span class="date-chip">07-04</span>
+                </div>
+                <div class="draft-btns"><span class="btn-ghost">✕ 放弃</span><span class="btn-accent">✓ 确认入库</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- S3 · AGENT MODE (native chat + confirm gate) -->
+      <section id="s3" class="clip" data-start="7.9" data-duration="5.7" data-track-index="1">
+        <div class="wrap" style="flex-direction:row;align-items:center;padding:0 120px;gap:70px">
+          <div style="width:34%">
+            <div class="eyebrow" id="s3-eye" style="margin-bottom:24px">智能助理 · Agent</div>
+            <h1 class="h1" id="s3-h1" style="font-size:70px"><span class="word">用聊的，</span><span class="word">帮你改</span></h1>
+            <div class="sub" id="s3-sub" style="font-size:26px;margin-top:26px;max-width:440px">多轮对话读写任务；每次改动，都先征求你的同意。</div>
+          </div>
+          <div style="width:66%;max-width:820px">
+            <div class="card" id="s3-card" style="padding:26px 30px">
+              <div class="agent-head" id="s3-head"><span style="color:var(--accent)">✦</span> 智能助理</div>
+              <div style="display:flex;flex-direction:column;gap:16px;margin-top:22px">
+                <div class="bubble-user" id="s3-user">帮我把「续签域名」改到这周五，并标为重要</div>
+                <div class="trace" id="s3-trace" style="align-self:flex-start"><span style="color:var(--green)">✓</span> 已找到任务「续签域名」</div>
+                <div class="assistant" id="s3-assist">好的，我把它的截止改到本周五、星级升到重要 —— 请确认：</div>
+                <div class="pending" id="s3-pending">
+                  <div class="pending-h">✎ 需要确认 · 修改</div>
+                  <div class="pending-sum">把「续签域名」改到 本周五 · 标记为重要</div>
+                  <div class="diff"><span class="k">截止</span><span class="old">07-08</span><span class="to">→</span><span class="new">07-04 周五</span></div>
+                  <div class="diff"><span class="k">星级</span><span class="old">★</span><span class="to">→</span><span class="new">★★★</span></div>
+                  <div class="draft-btns" style="margin-top:18px"><span class="btn-ghost" id="s3-reject">✕ 拒绝</span><span class="btn-accent" id="s3-accept">✓ 接受</span></div>
+                </div>
+                <div class="done-line" id="s3-done" style="opacity:0"><span>✓</span> 已更新「续签域名」</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- S4 · BREAKDOWN (native) -->
+      <section id="s4" class="clip" data-start="13.3" data-duration="4.1" data-track-index="2">
+        <div class="wrap" style="flex-direction:row;align-items:center;padding:0 130px;gap:70px">
+          <div style="width:40%">
+            <div class="eyebrow" id="s4-eye" style="margin-bottom:24px">目标拆解</div>
+            <h1 class="h1" id="s4-h1" style="font-size:74px"><span class="word">大目标，</span><span class="word">拆成小步骤</span></h1>
+            <div class="sub" id="s4-sub" style="font-size:26px;margin-top:26px;max-width:460px">一个大任务，自动分解为有序、可推进的子任务。</div>
+          </div>
+          <div style="width:60%;display:flex;justify-content:center">
+            <div class="callcard" id="s4-card" style="width:720px">
+              <div style="font-family:var(--serif);font-weight:600;font-size:32px;color:var(--ink);margin-bottom:8px">完成课程设计：智能任务系统</div>
+              <div style="display:flex;align-items:center;gap:16px;margin-bottom:22px">
+                <div style="flex:1;height:8px;border-radius:999px;background:var(--accent-soft);overflow:hidden"><div id="s4-bar" style="height:100%;width:0%;background:var(--accent);border-radius:999px"></div></div>
+                <div style="font-family:var(--mono);font-size:22px;color:var(--accent)" id="s4-frac">0/6</div>
+              </div>
+              <div>
+                <div class="subrow"><span class="sck done">✓</span><span class="subttl done">需求调研与竞品分析</span></div>
+                <div class="subrow"><span class="sck done">✓</span><span class="subttl done">数据库表结构设计</span></div>
+                <div class="subrow"><span class="sck"></span><span class="subttl">后端 API 与鉴权</span></div>
+                <div class="subrow"><span class="sck"></span><span class="subttl">前端页面与交互</span></div>
+                <div class="subrow"><span class="sck"></span><span class="subttl">部署上线与联调</span></div>
+                <div class="subrow"><span class="sck"></span><span class="subttl">撰写课程设计报告</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- S5 · SEMANTIC SEARCH (insert screenshot, floating) -->
+      <section id="s5" class="clip" data-start="17.1" data-duration="3.8" data-track-index="1">
+        <div class="wrap" style="align-items:center">
+          <div style="text-align:center;margin-bottom:30px">
+            <h1 class="h1" id="s5-h1" style="font-size:62px"><span class="word">用说的，</span><span class="word">就能找到</span></h1>
+            <div class="sub" id="s5-sub" style="font-size:24px;margin-top:14px;color:var(--muted)">语义检索：重要、还没做、快到期 —— 它都懂。</div>
+          </div>
+          <div class="win" id="s5-win" style="width:1160px">
+            <div class="win-bar"><span class="dot" style="background:#E86A5E"></span><span class="dot" style="background:#E6B24D"></span><span class="dot" style="background:#5EC26A"></span><span class="win-url">taskflowai.asia/app</span></div>
+            <div class="win-shot" style="height:540px"><img src="assets/shots/desk-semantic.png" style="object-position:center 14%"/></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- S6 · STATS + 581 counter (insert screenshot, floating) -->
+      <section id="s6" class="clip" data-start="20.6" data-duration="4.2" data-track-index="2">
+        <div class="wrap" style="flex-direction:row;align-items:center;padding:0 120px;gap:64px">
+          <div style="width:42%">
+            <div class="eyebrow" id="s6-eye" style="margin-bottom:22px">看得见的坚持</div>
+            <div style="display:flex;align-items:flex-end;gap:8px">
+              <div class="statnum" id="s6-num" style="font-size:150px;color:var(--green)">0</div>
+              <div style="font-family:var(--sans);font-size:30px;color:var(--ink2);padding-bottom:26px">项已完成</div>
+            </div>
+            <div class="sub" id="s6-sub" style="font-size:26px;margin-top:14px;max-width:460px">完成饼图、月度趋势、一年的专注足迹 —— 你的努力，一目了然。</div>
+          </div>
+          <div style="width:58%;display:flex;justify-content:center">
+            <div class="win" id="s6-win" style="width:1000px">
+              <div class="win-bar"><span class="dot" style="background:#E86A5E"></span><span class="dot" style="background:#E6B24D"></span><span class="dot" style="background:#5EC26A"></span><span class="win-url">taskflowai.asia/app</span></div>
+              <div class="win-shot" style="height:600px"><img src="assets/shots/desk-today.png" style="object-position:center 88%"/></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- S7 · MULTI-DEVICE (insert screenshots, floating) -->
+      <section id="s7" class="clip" data-start="24.5" data-duration="3.7" data-track-index="1">
+        <div class="wrap" style="align-items:center">
+          <div style="text-align:center;margin-bottom:28px">
+            <h1 class="h1" id="s7-h1" style="font-size:58px"><span class="word">网页</span><span class="word" style="color:var(--muted)"> · </span><span class="word">桌面</span><span class="word" style="color:var(--muted)"> · </span><span class="word">随身</span></h1>
+            <div class="sub" id="s7-sub" style="font-size:24px;margin-top:14px;color:var(--muted)">深色浅色，随心切换。</div>
+          </div>
+          <div style="position:relative;width:1500px;height:560px;margin:0 auto">
+            <div class="win" id="s7-desk" style="position:absolute;left:300px;top:8px;width:900px;z-index:1">
+              <div class="win-bar" style="background:#1D1D21;border-bottom:1px solid rgba(255,255,255,.06)"><span class="dot" style="background:#E86A5E"></span><span class="dot" style="background:#E6B24D"></span><span class="dot" style="background:#5EC26A"></span><span class="win-url" style="background:#26262C;color:#6E6E68">taskflowai.asia/app</span></div>
+              <div class="win-shot" style="height:462px;background:#161619"><img src="assets/shots/desk-stats-dark.png" style="object-position:center 20%"/></div>
+            </div>
+            <div class="phone" id="s7-phone" style="position:absolute;right:150px;top:66px;width:248px;z-index:3">
+              <div class="notch"></div>
+              <div class="phone-screen" style="height:470px"><img src="assets/shots/mob-today.png"/></div>
+            </div>
+            <div class="win" id="s7-tab" style="position:absolute;left:130px;top:92px;width:352px;z-index:2;border-radius:20px">
+              <div class="win-shot" style="height:452px"><img src="assets/shots/tab-tasks.png" style="object-position:center top"/></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- S8 · EASTER EGG + LOGO / CTA (native, correct logo) -->
+      <section id="s8" class="clip" data-start="27.9" data-duration="3.1" data-track-index="2">
+        <div id="s8-egg-wrap" style="position:absolute;left:0;right:0;top:300px;display:flex;justify-content:center">
+          <div id="s8-egg" style="display:inline-flex;align-items:center;gap:12px;font-family:var(--sans);font-size:28px;color:var(--ink2);
+            background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:16px 26px;box-shadow:var(--shadow-sm)">
+            <span class="sck" id="s8-egg-ck" style="width:26px;height:26px;border-radius:7px"></span>
+            <span id="s8-egg-txt">给 TaskFlow 拍一支 30 秒宣传片</span>
+          </div>
+        </div>
+        <div class="wrap" style="align-items:center">
+          <div id="s8-logo" style="display:flex;align-items:center;gap:22px;opacity:0">
+            <svg id="s8-mark" width="104" height="104" viewBox="0 0 24 24" fill="none" stroke="#4742B8" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+              <path id="s8-check" d="M3 12.5 l4.5 4.5 L16 6"/>
+              <path id="s8-line" d="M14 17 h7"/>
+            </svg>
+            <div class="wordmark" id="s8-word" style="font-size:92px">TaskFlow</div>
+          </div>
+          <h1 class="h1" id="s8-tag" style="font-size:50px;margin-top:38px;text-align:center;opacity:0">
+            <span class="word">用</span> <span class="word" style="color:var(--accent)">AI</span> <span class="word">重塑你的任务清单</span>
+          </h1>
+          <div class="cta" id="s8-cta" style="margin-top:42px;opacity:0">免费开始使用 <span style="font-family:var(--mono)">→</span></div>
+          <div id="s8-url" style="font-family:var(--mono);font-size:22px;color:var(--muted);margin-top:26px;letter-spacing:.06em;opacity:0">taskflowai.asia</div>
+        </div>
+      </section>
+
+      <!-- BGM bed -->
+      <audio id="bgm" src="assets/bgm/bgm-warm.mp3" data-start="0" data-duration="31" data-track-index="18" data-volume="0.68"></audio>
+
+      <!-- SFX (page-turn transitions + micro-interactions) -->
+      <audio id="sfx-01" src="assets/sfx/typing.mp3"        data-start="0.35"  data-duration="1.6" data-track-index="20" data-volume="0.28"></audio>
+      <audio id="sfx-02" src="assets/sfx/page-turn.mp3"     data-start="3.3"   data-duration="0.9" data-track-index="21" data-volume="0.6"></audio>
+      <audio id="sfx-03" src="assets/sfx/key-press.mp3"     data-start="4.9"   data-duration="0.5" data-track-index="22" data-volume="0.4"></audio>
+      <audio id="sfx-04" src="assets/sfx/pop.mp3"           data-start="5.5"   data-duration="0.8" data-track-index="23" data-volume="0.4"></audio>
+      <audio id="sfx-05" src="assets/sfx/pop.mp3"           data-start="6.7"   data-duration="0.8" data-track-index="24" data-volume="0.4"></audio>
+      <audio id="sfx-06" src="assets/sfx/page-turn-soft.mp3" data-start="7.9"  data-duration="1.0" data-track-index="25" data-volume="0.55"></audio>
+      <audio id="sfx-07" src="assets/sfx/chime.mp3"         data-start="9.4"   data-duration="1.4" data-track-index="26" data-volume="0.30"></audio>
+      <audio id="sfx-08" src="assets/sfx/click-soft.mp3"    data-start="12.2"  data-duration="0.5" data-track-index="27" data-volume="0.5"></audio>
+      <audio id="sfx-09" src="assets/sfx/pop.mp3"           data-start="12.3" data-duration="0.8" data-track-index="28" data-volume="0.42"></audio>
+      <audio id="sfx-10" src="assets/sfx/page-turn.mp3"     data-start="13.3"  data-duration="0.9" data-track-index="29" data-volume="0.6"></audio>
+      <audio id="sfx-11" src="assets/sfx/key-press.mp3"     data-start="14.5"  data-duration="0.5" data-track-index="30" data-volume="0.4"></audio>
+      <audio id="sfx-12" src="assets/sfx/key-press.mp3"     data-start="14.9"  data-duration="0.5" data-track-index="31" data-volume="0.4"></audio>
+      <audio id="sfx-13" src="assets/sfx/page-turn-soft.mp3" data-start="17.1" data-duration="1.0" data-track-index="32" data-volume="0.55"></audio>
+      <audio id="sfx-14" src="assets/sfx/ping.mp3"          data-start="18.4"  data-duration="1.3" data-track-index="33" data-volume="0.34"></audio>
+      <audio id="sfx-15" src="assets/sfx/page-turn.mp3"     data-start="20.6"  data-duration="0.9" data-track-index="34" data-volume="0.6"></audio>
+      <audio id="sfx-16" src="assets/sfx/riser.mp3"         data-start="21.0"  data-duration="3.2" data-track-index="35" data-volume="0.22"></audio>
+      <audio id="sfx-17" src="assets/sfx/chime.mp3"         data-start="24.0"  data-duration="1.4" data-track-index="36" data-volume="0.32"></audio>
+      <audio id="sfx-18" src="assets/sfx/page-turn-soft.mp3" data-start="24.5" data-duration="1.0" data-track-index="37" data-volume="0.55"></audio>
+      <audio id="sfx-19" src="assets/sfx/page-turn.mp3"     data-start="27.9"  data-duration="0.9" data-track-index="38" data-volume="0.55"></audio>
+      <audio id="sfx-20" src="assets/sfx/click-soft.mp3"    data-start="28.6"  data-duration="0.5" data-track-index="39" data-volume="0.5"></audio>
+      <audio id="sfx-21" src="assets/sfx/pop.mp3"           data-start="28.7" data-duration="0.8" data-track-index="40" data-volume="0.42"></audio>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      const S = { s1:0, s2:3.3, s3:7.9, s4:13.3, s5:17.1, s6:20.6, s7:24.5, s8:27.9 };
+      const words = (sel)=>Array.from(document.querySelectorAll(sel+' .word'));
+      const typeInto = (elId, msg, start, dur)=>{ const el=document.getElementById(elId); for(let i=0;i<=msg.length;i++){ tl.call(()=>{el.textContent=msg.substring(0,i);}, null, start+(i/msg.length)*dur); } };
+
+      /* BGM fade out at the very end */
+      tl.to('#bgm', { volume:0, duration:1.6, ease:'power1.in' }, 29.2);
+
+      /* S1 */
+      (function(){ const t0=S.s1;
+        tl.from('#s1-kicker',{y:-18,opacity:0,duration:.6,ease:'power3.out'},t0+.15);
+        typeInto('s1-typed','明天跟设计过一版新首页、写季度报告、给妈妈订花、续域名、交房租……', t0+.5, 1.9);
+        tl.to('#s1-caret',{opacity:0,duration:.5,yoyo:true,repeat:5,ease:'steps(1)'},t0+.4);
+        tl.from('#s1-hint',{y:16,opacity:0,duration:.6,ease:'power3.out'},t0+2.5);
+        tl.to(['#s1-typed','#s1-hint','#s1-kicker','#s1-caret'],{y:-64,opacity:0,filter:'blur(12px)',duration:.4,ease:'power2.in'},t0+3.25);
+      })();
+
+      /* S2 · native parse */
+      (function(){ const t0=S.s2;
+        tl.set(words('#s2-h1'),{y:40,opacity:0},t0);
+        tl.set('#s2-si',{y:40,opacity:0},t0);
+        tl.set('#s2-btn',{scale:1},t0);
+        tl.set(['#s2-c1','#s2-c2'],{y:34,opacity:0,scale:.97},t0);
+        tl.set('.stars .star',{scale:0},t0);
+        tl.set('#s2-hint',{opacity:1},t0);
+        tl.from('#s2-eye',{y:16,opacity:0,duration:.5,ease:'power3.out'},t0+.15);
+        tl.to(words('#s2-h1'),{y:0,opacity:1,duration:.55,ease:'power3.out',stagger:.1},t0+.28);
+        tl.from('#s2-sub',{y:16,opacity:0,duration:.5,ease:'power2.out'},t0+.55);
+        tl.to('#s2-si',{y:0,opacity:1,duration:.55,ease:'power3.out'},t0+.35);
+        typeInto('s2-typed','明天下午三点跟设计团队过新首页，周五前把季度报告初稿写完', t0+.9, 1.4);
+        // click "整理": pulse + swap hint to loading
+        tl.to('#s2-btn',{scale:.92,duration:.1,yoyo:true,repeat:1,ease:'power2.out'},t0+2.5);
+        tl.call(()=>{document.getElementById('s2-hint').textContent='正在整理…';},null,t0+2.6);
+        tl.to('#s2-caret',{opacity:0,duration:.2},t0+2.5);
+        // cards materialize
+        tl.to('#s2-c1',{y:0,opacity:1,scale:1,duration:.5,ease:'back.out(1.4)'},t0+2.9);
+        tl.to('#s2-c1 .star',{scale:1,duration:.28,ease:'back.out(2)',stagger:.06,
+          onStart:function(){document.querySelectorAll('#s2-c1 .stars .star').forEach((s,i)=>{if(i<4)s.classList.add('on');});}},t0+3.15);
+        tl.to('#s2-c2',{y:0,opacity:1,scale:1,duration:.5,ease:'back.out(1.4)'},t0+3.55);
+        tl.to('#s2-c2 .star',{scale:1,duration:.28,ease:'back.out(2)',stagger:.05,
+          onStart:function(){document.querySelectorAll('#s2-c2 .stars .star').forEach((s)=>s.classList.add('on'));}},t0+3.8);
+        tl.call(()=>{document.getElementById('s2-hint').textContent='共整理出 2 个任务';},null,t0+3.7);
+        tl.to(['#s2-eye','#s2-h1','#s2-sub','#s2-si','#s2-c1','#s2-c2'],{y:-42,opacity:0,filter:'blur(9px)',duration:.4,ease:'power2.in'},t0+4.55);
+      })();
+
+      /* S3 · native agent */
+      (function(){ const t0=S.s3;
+        tl.set(words('#s3-h1'),{y:38,opacity:0},t0);
+        tl.set('#s3-card',{y:44,opacity:0,scale:.97},t0);
+        tl.set('#s3-user',{y:16,opacity:0},t0);
+        tl.set('#s3-trace',{y:12,opacity:0},t0);
+        tl.set('#s3-assist',{y:12,opacity:0},t0);
+        tl.set('#s3-pending',{y:24,opacity:0},t0);
+        tl.set('#s3-done',{opacity:0,y:8},t0);
+        tl.from('#s3-eye',{y:16,opacity:0,duration:.5,ease:'power3.out'},t0+.15);
+        tl.to(words('#s3-h1'),{y:0,opacity:1,duration:.55,ease:'power3.out',stagger:.1},t0+.28);
+        tl.from('#s3-sub',{y:16,opacity:0,duration:.5,ease:'power2.out'},t0+.55);
+        tl.to('#s3-card',{y:0,opacity:1,scale:1,duration:.55,ease:'power3.out'},t0+.4);
+        tl.to('#s3-user',{y:0,opacity:1,duration:.45,ease:'power3.out'},t0+.8);
+        tl.to('#s3-trace',{y:0,opacity:1,duration:.4,ease:'power2.out'},t0+1.5);
+        tl.to('#s3-assist',{y:0,opacity:1,duration:.45,ease:'power2.out'},t0+2.0);
+        tl.to('#s3-pending',{y:0,opacity:1,duration:.5,ease:'back.out(1.3)'},t0+2.6);
+        // accept tap -> confirm
+        tl.to('#s3-accept',{scale:.92,duration:.1,yoyo:true,repeat:1,ease:'power2.out'},t0+4.0);
+        tl.to('#s3-pending',{opacity:0,y:-10,duration:.35,ease:'power2.in'},t0+4.25);
+        tl.to('#s3-done',{opacity:1,y:0,duration:.4,ease:'back.out(1.5)'},t0+4.5);
+        tl.to(['#s3-eye','#s3-h1','#s3-sub','#s3-card'],{y:-42,opacity:0,filter:'blur(9px)',duration:.4,ease:'power2.in'},t0+5.35);
+      })();
+
+      /* S4 · breakdown */
+      (function(){ const t0=S.s4;
+        tl.set('#s4-card',{y:56,opacity:0,scale:.97},t0);
+        tl.set(words('#s4-h1'),{y:38,opacity:0},t0);
+        tl.set('#s4 .subrow',{x:26,opacity:0},t0);
+        tl.from('#s4-eye',{y:14,opacity:0,duration:.5,ease:'power3.out'},t0+.15);
+        tl.to(words('#s4-h1'),{y:0,opacity:1,duration:.55,ease:'power3.out',stagger:.1},t0+.28);
+        tl.from('#s4-sub',{y:16,opacity:0,duration:.5,ease:'power2.out'},t0+.55);
+        tl.to('#s4-card',{y:0,opacity:1,scale:1,duration:.6,ease:'power3.out'},t0+.45);
+        tl.to('#s4 .subrow',{x:0,opacity:1,duration:.45,ease:'power2.out',stagger:.09},t0+.8);
+        tl.to('#s4-bar',{width:'33.3%',duration:.9,ease:'power2.inOut'},t0+1.6);
+        const frac=document.getElementById('s4-frac');
+        tl.call(()=>frac.textContent='1/6',null,t0+1.85);
+        tl.call(()=>frac.textContent='2/6',null,t0+2.25);
+        tl.to('#s4-card',{y:-42,opacity:0,filter:'blur(9px)',duration:.4,ease:'power2.in'},t0+3.65);
+        tl.to(['#s4-eye','#s4-h1','#s4-sub'],{y:-26,opacity:0,duration:.35,ease:'power2.in'},t0+3.65);
+      })();
+
+      /* S5 · semantic (float, no zoom) */
+      (function(){ const t0=S.s5;
+        tl.set('#s5-win',{y:60,opacity:0},t0);
+        tl.set(words('#s5-h1'),{y:30,opacity:0},t0);
+        tl.to(words('#s5-h1'),{y:0,opacity:1,duration:.5,ease:'power3.out',stagger:.09},t0+.15);
+        tl.from('#s5-sub',{y:12,opacity:0,duration:.5,ease:'power2.out'},t0+.4);
+        tl.to('#s5-win',{y:0,opacity:1,duration:.6,ease:'power3.out'},t0+.35);
+        tl.to('#s5-win',{y:-14,duration:1.7,yoyo:true,repeat:1,ease:'sine.inOut'},t0+1.1);
+        tl.to('#s5-win',{y:-40,opacity:0,filter:'blur(9px)',duration:.4,ease:'power2.in'},t0+3.45);
+        tl.to(['#s5-h1','#s5-sub'],{y:-24,opacity:0,duration:.35,ease:'power2.in'},t0+3.45);
+      })();
+
+      /* S6 · stats + counter (float) */
+      (function(){ const t0=S.s6;
+        tl.set('#s6-win',{x:56,opacity:0},t0);
+        tl.from('#s6-eye',{y:14,opacity:0,duration:.5,ease:'power3.out'},t0+.15);
+        tl.to('#s6-win',{x:0,opacity:1,duration:.6,ease:'power3.out'},t0+.4);
+        tl.to('#s6-win',{y:-13,duration:1.9,yoyo:true,repeat:1,ease:'sine.inOut'},t0+1.1);
+        tl.from('#s6-sub',{y:16,opacity:0,duration:.55,ease:'power2.out'},t0+.9);
+        tl.fromTo('#s6-num',{scale:.8,opacity:0},{scale:1,opacity:1,duration:.5,ease:'back.out(1.7)'},t0+.5);
+        const num=document.getElementById('s6-num'); const c={v:0};
+        tl.to(c,{v:581,duration:1.7,ease:'power2.out',onUpdate:()=>{num.textContent=Math.round(c.v);}},t0+.55);
+        tl.to('#s6-win',{x:-40,opacity:0,filter:'blur(9px)',duration:.4,ease:'power2.in'},t0+3.85);
+        tl.to(['#s6-eye','#s6-num','#s6-sub'],{y:-24,opacity:0,duration:.35,ease:'power2.in'},t0+3.85);
+      })();
+
+      /* S7 · devices (float) */
+      (function(){ const t0=S.s7;
+        tl.set(words('#s7-h1'),{y:26,opacity:0},t0);
+        tl.set('#s7-desk',{y:56,opacity:0,rotation:-1.4},t0);
+        tl.set('#s7-tab',{x:-64,y:36,opacity:0,rotation:-4},t0);
+        tl.set('#s7-phone',{x:64,y:46,opacity:0,rotation:5},t0);
+        tl.to(words('#s7-h1'),{y:0,opacity:1,duration:.5,ease:'power3.out',stagger:.06},t0+.15);
+        tl.from('#s7-sub',{y:12,opacity:0,duration:.5,ease:'power2.out'},t0+.45);
+        tl.to('#s7-desk',{y:0,opacity:1,rotation:0,duration:.65,ease:'power3.out'},t0+.4);
+        tl.to('#s7-tab',{x:0,y:0,opacity:1,rotation:-3,duration:.65,ease:'back.out(1.3)'},t0+.6);
+        tl.to('#s7-phone',{x:0,y:0,opacity:1,rotation:4,duration:.65,ease:'back.out(1.3)'},t0+.72);
+        tl.to('#s7-phone',{y:-12,duration:1.4,yoyo:true,repeat:1,ease:'sine.inOut'},t0+1.5);
+        tl.to(['#s7-desk','#s7-tab','#s7-phone'],{y:'-=42',opacity:0,filter:'blur(8px)',duration:.4,ease:'power2.in'},t0+3.3);
+        tl.to(['#s7-h1','#s7-sub'],{y:-22,opacity:0,duration:.35,ease:'power2.in'},t0+3.3);
+      })();
+
+      /* S8 · egg + logo */
+      (function(){ const t0=S.s8;
+        tl.set('#s8-egg',{y:24,opacity:0,scale:.94},t0);
+        tl.to('#s8-egg',{y:0,opacity:1,scale:1,duration:.5,ease:'back.out(1.5)'},t0+.15);
+        const ck=document.getElementById('s8-egg-ck');
+        tl.to('#s8-egg-ck',{backgroundColor:'#2F6B45',borderColor:'#2F6B45',duration:.25,ease:'power2.out'},t0+.7);
+        tl.call(()=>{ck.innerHTML='<svg width="16" height="16" viewBox="0 0 16 16"><path d="M3 8.5 L6.5 12 L13 4" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';},null,t0+.77);
+        tl.to('#s8-egg-txt',{color:'#8A8A83',duration:.3},t0+.77);
+        tl.to('#s8-egg',{scale:1.05,duration:.16,yoyo:true,repeat:1,ease:'power2.out'},t0+.75);
+        buildConfetti(t0+.77);
+        tl.to('#s8-egg',{y:-38,opacity:0,duration:.42,ease:'power2.in'},t0+1.3);
+
+        tl.set('#s8-logo',{opacity:1},t0+1.42);
+        tl.set('#s8-word',{opacity:0,x:-18},t0+1.42);
+        const chk=document.getElementById('s8-check'); dash(chk,26);
+        const line=document.getElementById('s8-line'); dash(line,7);
+        tl.fromTo('#s8-mark',{scale:.6,opacity:0},{scale:1,opacity:1,duration:.5,ease:'back.out(1.6)'},t0+1.45);
+        tl.to(chk,{strokeDashoffset:0,duration:.5,ease:'power2.out'},t0+1.55);
+        tl.to(line,{strokeDashoffset:0,duration:.3,ease:'power2.out'},t0+2.0);
+        tl.to('#s8-word',{opacity:1,x:0,duration:.55,ease:'power3.out'},t0+1.95);
+        tl.fromTo('#s8-tag',{y:22,opacity:0},{y:0,opacity:1,duration:.55,ease:'power3.out'},t0+2.15);
+        tl.fromTo('#s8-cta',{y:20,opacity:0},{y:0,opacity:1,duration:.5,ease:'back.out(1.4)'},t0+2.4);
+        tl.fromTo('#s8-url',{opacity:0},{opacity:1,duration:.4,ease:'power2.out'},t0+2.65);
+        tl.to('#s8-logo',{scale:1.02,duration:.7,ease:'sine.inOut'},t0+2.5);
+      })();
+
+      function dash(el,len){ el.style.strokeDasharray=len; el.style.strokeDashoffset=len; }
+      function buildConfetti(at){
+        const root=document.getElementById('s8'); const cx=960,cy=348;
+        const cols=['#4742B8','#6C63E0','#2F6B45','#E6B24D','#E86A5E']; const P=22;
+        for(let i=0;i<P;i++){
+          const ang=(i/P)*Math.PI*2+(i%2?0.32:-0.18); const dist=150+(i%4)*46;
+          const dx=Math.cos(ang)*dist, dy=Math.sin(ang)*dist*0.82-40;
+          const el=document.createElement('div'); el.className='confetti';
+          el.style.left=cx+'px'; el.style.top=cy+'px'; el.style.background=cols[i%cols.length];
+          el.style.borderRadius=(i%3===0)?'50%':'3px'; root.appendChild(el);
+          tl.fromTo(el,{x:0,y:0,opacity:1,scale:.4,rotation:0},{x:dx,y:dy,opacity:0,scale:1,rotation:(i%2?220:-200),duration:1.0,ease:'power2.out'},at);
+        }
+      }
+      window.__timelines["main"]=tl;
+    </script>
+  </body>
+</html>

@@ -148,6 +148,18 @@
   .tf-skeleton::after { animation: none; }
 }
 
+/* Heatmap tiles drop into place in a diagonal wave (delay set inline per cell) */
+@keyframes tf-tile-in {
+  from { opacity: 0; transform: translateY(-7px) scale(0.35); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.tf-tile {
+  animation: tf-tile-in 380ms var(--ease-out) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tf-tile { animation: none; }
+}
+
 /* Agent 模式：消息 / 确认卡的淡入上浮（reduced-motion 下自动失效，见下方 0ms 覆盖） */
 @keyframes tf-rise {
   from { opacity: 0; transform: translateY(6px); }

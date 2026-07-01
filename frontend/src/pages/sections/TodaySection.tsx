@@ -3,6 +3,9 @@ import { Sun, Moon, Flame, CheckCircle2, Plus } from 'lucide-react'
 import { SmartInput } from '@/components/ai/SmartInput'
 import { AiDraftCard } from '@/components/ai/AiDraftCard'
 import { Spinner } from '@/components/ui/Spinner'
+import { Skeleton, LoadingSwap } from '@/components/ui/Skeleton'
+import { CountUp } from '@/components/ui/CountUp'
+import { ContributionHeatmap } from '@/components/stats/ContributionHeatmap'
 import { Modal, ModalFooter } from '@/components/ui/Modal'
 import { PageContainer } from '@/components/layout/PageContainer'
 import { TaskForm, emptyDraft } from '@/components/task/TaskForm'
@@ -17,6 +20,35 @@ type DraftItem = ParsedTask & { _key: string }
 
 let draftKeySeq = 0
 const nextDraftKey = () => `draft-${Date.now()}-${draftKeySeq++}`
+
+function OverviewSkeleton() {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px', rowGap: '16px', marginBottom: '32px', paddingBottom: '24px', borderBottom: '1px solid var(--border)' }}>
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <Skeleton width={40} height={26} />
+          <Skeleton width={32} height={11} />
+        </div>
+      ))}
+      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <Skeleton width={72} height={16} />
+        <Skeleton width={72} height={28} radius="var(--radius-pill)" />
+      </div>
+    </div>
+  )
+}
+
+function HeatmapSkeleton() {
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '14px' }}>
+        <Skeleton width={72} height={16} />
+        <Skeleton width={110} height={11} />
+      </div>
+      <Skeleton width="100%" height={110} radius="var(--radius-md)" />
+    </div>
+  )
+}
 
 export function TodaySection() {
   const { addToast } = useAppStore()
@@ -34,6 +66,7 @@ export function TodaySection() {
   const [showEvening, setShowEvening] = useState(false)
 
   const [stats, setStats] = useState<UserStats | null>(null)
+  const [statsLoading, setStatsLoading] = useState(true)
   const [checkin, setCheckin] = useState<CheckinStatus | null>(null)
   const [checkinLoading, setCheckinLoading] = useState(false)
 
@@ -48,8 +81,12 @@ export function TodaySection() {
   }, [])
 
   async function loadStats() {
-    const res = await userApi.stats()
-    if (res.success && res.data) setStats(res.data)
+    try {
+      const res = await userApi.stats()
+      if (res.success && res.data) setStats(res.data)
+    } finally {
+      setStatsLoading(false)
+    }
   }
 
   async function loadCheckin() {
@@ -179,7 +216,8 @@ export function TodaySection() {
       </div>
 
       {/* Overview numbers */}
-      {stats && (
+      <LoadingSwap loading={statsLoading} skeleton={<OverviewSkeleton />}>
+        {stats && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px', rowGap: '16px', marginBottom: '32px', paddingBottom: '24px', borderBottom: '1px solid var(--border)' }}>
           {[
             { label: '待完成', value: stats.pending, color: 'var(--text-primary)' },
@@ -189,7 +227,7 @@ export function TodaySection() {
           ].map((item) => (
             <div key={item.label}>
               <div style={{ fontSize: 'var(--text-2xl)', fontWeight: 'var(--fw-medium)', color: item.color, fontFamily: 'var(--font-mono)', lineHeight: 1 }}>
-                {item.value}
+                <CountUp value={item.value} />
               </div>
               <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: '4px' }}>{item.label}</div>
             </div>
@@ -223,7 +261,8 @@ export function TodaySection() {
             </button>
           </div>
         </div>
-      )}
+        )}
+      </LoadingSwap>
 
       {/* Smart Input */}
       <div style={{ marginBottom: '24px' }}>
@@ -307,6 +346,13 @@ export function TodaySection() {
             晚间总结
           </button>
         </div>
+      </div>
+
+      {/* Completion heatmap */}
+      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '28px', marginBottom: '8px' }}>
+        <LoadingSwap loading={statsLoading} skeleton={<HeatmapSkeleton />}>
+          {stats && <ContributionHeatmap data={stats.daily_completed ?? []} />}
+        </LoadingSwap>
       </div>
 
       {/* Morning recommendations modal */}

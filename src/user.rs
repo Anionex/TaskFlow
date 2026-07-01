@@ -96,6 +96,19 @@ pub async fn get_stats(
         }
     }
 
+    // 近 54 周每日完成量（稀疏，仅返回有完成记录的日期；前端补零铺成热力图）
+    let daily: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT to_char(completed_at + INTERVAL '8 hours', 'YYYY-MM-DD') as day, COUNT(*) \
+         FROM tasks \
+         WHERE user_id=$1 AND completed=true AND deleted_at IS NULL AND completed_at IS NOT NULL \
+           AND completed_at >= (now() - INTERVAL '54 weeks') \
+         GROUP BY day",
+    )
+    .bind(uid)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
     (
         StatusCode::OK,
         ok(
@@ -105,7 +118,8 @@ pub async fn get_stats(
                 "completed": completed,
                 "pending": pending,
                 "expired": expired,
-                "monthly_completed": monthly
+                "monthly_completed": monthly,
+                "daily_completed": daily
             }),
         ),
     )

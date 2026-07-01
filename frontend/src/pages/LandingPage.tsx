@@ -235,6 +235,39 @@ export function LandingPage() {
       {/* Divider */}
       <div style={{ borderTop: '1px solid var(--border)', maxWidth: 720, margin: '0 auto' }} />
 
+      {/* Promo video */}
+      <section style={{ padding: '72px 48px', maxWidth: 900, margin: '0 auto' }}>
+        <h2 style={{
+          fontSize: 'var(--text-xl)',
+          fontWeight: 'var(--fw-medium)',
+          color: 'var(--text-primary)',
+          marginBottom: '32px',
+          textAlign: 'center',
+        }}>
+          30 秒看懂 TaskFlow
+        </h2>
+        <div style={{
+          borderRadius: 'var(--radius-lg)',
+          overflow: 'hidden',
+          border: '1px solid var(--border)',
+          boxShadow: '0 30px 70px -30px rgba(27, 27, 25, 0.28)',
+          background: '#000',
+          aspectRatio: '16 / 9',
+        }}>
+          <video
+            src="/taskflow-promo.mp4"
+            poster="/taskflow-promo-poster.jpg"
+            controls
+            preload="metadata"
+            playsInline
+            style={{ width: '100%', height: '100%', display: 'block', objectFit: 'cover' }}
+          />
+        </div>
+      </section>
+
+      {/* Divider */}
+      <div style={{ borderTop: '1px solid var(--border)', maxWidth: 720, margin: '0 auto' }} />
+
       {/* Features */}
       <section style={{ padding: '72px 48px', maxWidth: 720, margin: '0 auto' }}>
         <h2 style={{

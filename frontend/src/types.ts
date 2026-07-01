@@ -127,6 +127,8 @@ export interface UserStats {
   pending: number
   expired: number
   monthly_completed: [string, number][]
+  // 近 54 周每日完成量（稀疏：仅含有完成记录的日期）
+  daily_completed?: [string, number][]
 }
 
 export interface UserSettings {
