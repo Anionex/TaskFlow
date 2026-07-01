@@ -6,6 +6,7 @@ import {
 import { StarRating } from '@/components/ui/StarRating'
 import { Spinner } from '@/components/ui/Spinner'
 import { Modal, ModalFooter } from '@/components/ui/Modal'
+import { confirm } from '@/components/ui/ConfirmDialog'
 import { PageContainer } from '@/components/layout/PageContainer'
 import { TaskForm, emptyDraft } from '@/components/task/TaskForm'
 import { tasksApi } from '@/api/tasks'
@@ -14,6 +15,8 @@ import { useAppStore } from '@/store'
 import type { Task, Category, SortBy, DecomposeResult } from '@/types'
 const STATUS_TABS = [
   { id: 'pending', label: '待办' },
+  // 未完成 = 待办 + 已过期 合并，后端按 completed=false 过滤
+  { id: 'incomplete', label: '未完成' },
   { id: 'completed', label: '已完成' },
   { id: 'expired', label: '已过期' },
 ] as const
@@ -96,6 +99,8 @@ export function TasksSection() {
   // Batch selection
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [batchDeleting, setBatchDeleting] = useState(false)
+  // 多选模式：关闭时行点击进入编辑，选择框隐藏；开启时行点击切换选中，显示批量工具栏
+  const [selectMode, setSelectMode] = useState(false)
 
   // Collapse state for task groups
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
@@ -108,7 +113,7 @@ export function TasksSection() {
   const [editTask, setEditTask] = useState<Task | null>(null)
   const [editDraft, setEditDraft] = useState(emptyDraft())
 
-  const [rewriteTask, setRewriteTask] = useState<Task | null>(null)
+  // 改写建议：现由编辑卡内触发，作用于 editTask，结果内联显示在编辑卡中
   const [rewriteLoading, setRewriteLoading] = useState(false)
   const [rewriteResult, setRewriteResult] = useState<{ actionable: boolean; suggested_title: string; reason: string } | null>(null)
 
@@ -277,7 +282,13 @@ export function TasksSection() {
 
   async function handleClearStatus() {
     // 明确提示：清空的是当前「状态」下的全部任务，而非选中项。
-    if (!window.confirm(`确认清空「${statusLabel}」下的全部任务？此操作不可撤销`)) return
+    const ok = await confirm({
+      title: '清空任务',
+      message: `确认清空「${statusLabel}」下的全部任务？此操作不可撤销`,
+      danger: true,
+      confirmText: '清空',
+    })
+    if (!ok) return
     // 整表清空：这里的快照恢复可接受（清空后列表为 []，并发风险低）。
     // 但仍用函数式 setState，并加“仅当列表仍为空时才恢复”的守卫，避免覆盖期间新到的行。
     const snapshotTasks = tasks
@@ -324,6 +335,7 @@ export function TasksSection() {
 
   function openEdit(task: Task) {
     setEditTask(task)
+    setRewriteResult(null)
     setEditDraft({
       title: task.title,
       description: task.description,
@@ -386,11 +398,12 @@ export function TasksSection() {
   }
 
   async function handleRewrite() {
-    if (!rewriteTask) return
+    // 作用于当前编辑的任务；改写基于编辑草稿里的标题/描述（用户可能已改动）。
+    if (!editTask) return
     setRewriteLoading(true)
     setRewriteResult(null)
     try {
-      const res = await aiApi.rewrite(rewriteTask.title, rewriteTask.description)
+      const res = await aiApi.rewrite(editDraft.title, editDraft.description)
       if (res.success && res.data) setRewriteResult(res.data)
       else addToast({ type: 'error', message: res.message || '改写失败' })
     } catch {
@@ -400,22 +413,11 @@ export function TasksSection() {
     }
   }
 
-  async function applyRewrite() {
-    if (!rewriteTask || !rewriteResult) return
-    const id = rewriteTask.id
-    const newTitle = rewriteResult.suggested_title
-    // 失败时只对这一行逆向 map 还原旧标题（函数式更新，不覆写整表）。
-    const prevTitle = rewriteTask.title
-    patchLists((l) => l.map((t) => (t.id === id ? { ...t, title: newTitle } : t)))
-    setRewriteTask(null)
+  // 采纳改写建议：把建议标题写回编辑草稿，让用户在编辑卡内继续确认后保存。
+  function applyRewrite() {
+    if (!rewriteResult) return
+    setEditDraft((d) => ({ ...d, title: rewriteResult.suggested_title }))
     setRewriteResult(null)
-    const res = await tasksApi.update(id, { title: newTitle })
-    if (res.success) {
-      addToast({ type: 'success', message: '标题已更新' })
-    } else {
-      addToast({ type: 'error', message: res.message || '更新失败' })
-      patchLists((l) => l.map((t) => (t.id === id ? { ...t, title: prevTitle } : t)))
-    }
   }
 
   async function handleDecompose() {
@@ -466,6 +468,14 @@ export function TasksSection() {
     })
   }
 
+  // 进入/退出多选模式；退出时清空已选，避免残留选择影响批量操作。
+  function toggleSelectMode() {
+    setSelectMode((on) => {
+      if (on) setSelected(new Set())
+      return !on
+    })
+  }
+
   function toggleCollapse(id: string) {
     setCollapsed((s) => {
       const n = new Set(s)
@@ -499,9 +509,9 @@ export function TasksSection() {
 
     return (
       <div key={task.id}>
-        {/* Task row */}
+        {/* Task row：多选模式下点击行切换选中，否则打开编辑卡 */}
         <div
-          onClick={() => toggleSelect(task.id)}
+          onClick={() => (selectMode ? toggleSelect(task.id) : openEdit(task))}
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -575,14 +585,6 @@ export function TasksSection() {
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', padding: '3px' }}
             >
               <Edit2 size={13} />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); setRewriteTask(task); setRewriteResult(null) }}
-              aria-label="AI 改写"
-              title="AI 改写 / 拆解"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', padding: '3px' }}
-            >
-              <Sparkles size={13} />
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); deleteTask(task.id) }}
@@ -746,8 +748,26 @@ export function TasksSection() {
         </select>
       </div>
 
-      {/* Batch toolbar */}
-      {selected.size > 0 && (
+      {/* 多选模式开关：默认点击行进入编辑，需显式进入多选才做批量选择 */}
+      <div style={{ display: 'flex', marginBottom: '12px' }}>
+        <button
+          onClick={toggleSelectMode}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '5px',
+            background: selectMode ? 'var(--accent)' : 'none',
+            border: `1px solid ${selectMode ? 'var(--accent)' : 'var(--border-strong)'}`,
+            borderRadius: 'var(--radius-pill)', padding: '5px 14px',
+            fontSize: 'var(--text-sm)',
+            color: selectMode ? 'var(--on-accent)' : 'var(--text-muted)',
+            cursor: 'pointer', fontFamily: 'var(--font-sans)',
+          }}
+        >
+          {selectMode ? <><X size={13} aria-hidden /> 完成</> : <><CheckSquare size={13} aria-hidden /> 多选</>}
+        </button>
+      </div>
+
+      {/* Batch toolbar：进入多选模式即显示，便于批量操作 */}
+      {selectMode && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: '10px',
           padding: '8px 12px', marginBottom: '12px',
@@ -757,13 +777,15 @@ export function TasksSection() {
           <span style={{ fontSize: 'var(--text-sm)', color: 'var(--accent)' }}>已选 {selected.size} 项</span>
           <button
             onClick={handleBatchDelete}
-            disabled={batchDeleting}
+            disabled={batchDeleting || selected.size === 0}
             style={{
               display: 'flex', alignItems: 'center', gap: '4px',
               background: 'none', border: '1px solid var(--danger)',
               borderRadius: 'var(--radius-pill)', padding: '4px 12px',
               fontSize: 'var(--text-sm)', color: 'var(--danger)',
-              cursor: 'pointer', fontFamily: 'var(--font-sans)',
+              cursor: selected.size === 0 ? 'not-allowed' : 'pointer',
+              opacity: selected.size === 0 ? 0.6 : 1,
+              fontFamily: 'var(--font-sans)',
             }}
           >
             {batchDeleting ? <Spinner size={12} /> : <Trash2 size={12} aria-hidden />}
@@ -794,7 +816,7 @@ export function TasksSection() {
       {/* Total count */}
       <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: '12px' }}>
         共 {semanticActive ? displayTasks.length : total} 项
-        {selected.size === 0 && displayTasks.length > 0 && (
+        {selectMode && selected.size === 0 && displayTasks.length > 0 && (
           <button
             onClick={() => setSelected(new Set(displayTasks.map((t) => t.id)))}
             style={{ marginLeft: '12px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent)', fontSize: 'var(--text-xs)', fontFamily: 'var(--font-sans)' }}
@@ -875,8 +897,23 @@ export function TasksSection() {
         {editTask && (
           <>
             <TaskForm draft={editDraft} onChange={setEditDraft} />
-            {/* Decompose button in edit */}
-            <div style={{ marginTop: '4px', marginBottom: '4px' }}>
+            {/* AI 能力内嵌编辑卡：改写建议 + 拆解为子任务，均作用于当前编辑的任务 */}
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px', marginBottom: '4px' }}>
+              <button
+                onClick={handleRewrite}
+                disabled={rewriteLoading}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '5px',
+                  background: 'none', border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-pill)', padding: '5px 13px',
+                  fontSize: 'var(--text-sm)', color: 'var(--accent)',
+                  cursor: rewriteLoading ? 'not-allowed' : 'pointer',
+                  opacity: rewriteLoading ? 0.7 : 1, fontFamily: 'var(--font-sans)',
+                }}
+              >
+                {rewriteLoading ? <Spinner size={12} /> : <Sparkles size={12} aria-hidden />}
+                {rewriteLoading ? '正在改写…' : '改写建议'}
+              </button>
               <button
                 onClick={() => { setDecomposeTask(editTask); setEditTask(null); setDecomposeResult(null) }}
                 style={{
@@ -890,6 +927,31 @@ export function TasksSection() {
                 <Sparkles size={12} aria-hidden /> AI 拆解为子任务
               </button>
             </div>
+            {/* 改写建议结果卡：采纳后写回标题草稿，用户确认再保存 */}
+            {rewriteResult && (
+              <div style={{ paddingLeft: '12px', borderLeft: '2px solid var(--accent)', marginTop: '10px', marginBottom: '4px' }}>
+                <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-base)', color: 'var(--text-primary)', marginBottom: '6px' }}>
+                  {rewriteResult.suggested_title}
+                </p>
+                <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: '10px' }}>
+                  {rewriteResult.reason}
+                </p>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    onClick={applyRewrite}
+                    style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 'var(--radius-pill)', padding: '4px 12px', fontSize: 'var(--text-sm)', color: 'var(--on-accent)', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}
+                  >
+                    应用改写
+                  </button>
+                  <button
+                    onClick={() => setRewriteResult(null)}
+                    style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-pill)', padding: '4px 12px', fontSize: 'var(--text-sm)', color: 'var(--text-muted)', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}
+                  >
+                    忽略
+                  </button>
+                </div>
+              </div>
+            )}
             <ModalFooter>
               <button onClick={() => setEditTask(null)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-pill)', padding: '6px 14px', fontSize: 'var(--text-sm)', color: 'var(--text-muted)', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>取消</button>
               <button onClick={handleEdit} disabled={!editDraft.title.trim()} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 'var(--radius-pill)', padding: '6px 16px', fontSize: 'var(--text-sm)', color: 'var(--on-accent)', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>
@@ -897,67 +959,6 @@ export function TasksSection() {
               </button>
             </ModalFooter>
           </>
-        )}
-      </Modal>
-
-      {/* Rewrite / decompose (magic) modal */}
-      <Modal open={!!rewriteTask} onClose={() => { setRewriteTask(null); setRewriteResult(null) }} title="AI 助手">
-        {rewriteTask && (
-          <div>
-            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-              当前标题：<strong>{rewriteTask.title}</strong>
-            </p>
-            {rewriteResult ? (
-              <div style={{ paddingLeft: '12px', borderLeft: '2px solid var(--accent)', marginBottom: '16px' }}>
-                <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-base)', color: 'var(--text-primary)', marginBottom: '6px' }}>
-                  {rewriteResult.suggested_title}
-                </p>
-                <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)' }}>
-                  {rewriteResult.reason}
-                </p>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
-                <button
-                  onClick={handleRewrite}
-                  disabled={rewriteLoading}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '5px',
-                    background: 'var(--accent)', border: '1px solid var(--accent)',
-                    borderRadius: 'var(--radius-pill)', padding: '7px 16px',
-                    fontSize: 'var(--text-sm)', color: 'var(--on-accent)',
-                    cursor: rewriteLoading ? 'not-allowed' : 'pointer',
-                    opacity: rewriteLoading ? 0.7 : 1, fontFamily: 'var(--font-sans)',
-                  }}
-                >
-                  {rewriteLoading ? <Spinner size={12} /> : <Sparkles size={12} aria-hidden />}
-                  {rewriteLoading ? '正在改写…' : '改写建议'}
-                </button>
-                <button
-                  onClick={() => { const t = rewriteTask; setRewriteTask(null); setRewriteResult(null); setDecomposeTask(t); setDecomposeResult(null) }}
-                  disabled={rewriteLoading}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: '5px',
-                    background: 'none', border: '1px solid var(--border)',
-                    borderRadius: 'var(--radius-pill)', padding: '7px 16px',
-                    fontSize: 'var(--text-sm)', color: 'var(--accent)',
-                    cursor: rewriteLoading ? 'not-allowed' : 'pointer',
-                    opacity: rewriteLoading ? 0.7 : 1, fontFamily: 'var(--font-sans)',
-                  }}
-                >
-                  <Sparkles size={12} aria-hidden /> 拆解为子任务
-                </button>
-              </div>
-            )}
-            <ModalFooter>
-              <button onClick={() => { setRewriteTask(null); setRewriteResult(null) }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-pill)', padding: '6px 14px', fontSize: 'var(--text-sm)', color: 'var(--text-muted)', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>关闭</button>
-              {rewriteResult && (
-                <button onClick={applyRewrite} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 'var(--radius-pill)', padding: '6px 16px', fontSize: 'var(--text-sm)', color: 'var(--on-accent)', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>
-                  应用改写
-                </button>
-              )}
-            </ModalFooter>
-          </div>
         )}
       </Modal>
 
