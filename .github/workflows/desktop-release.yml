@@ -43,15 +43,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # 桌面端指向已部署的后端
           VITE_API_BASE: https://taskflowai.asia/api
-          # macOS 代码签名 + 公证。需在仓库 Settings → Secrets 配置以下值；
-          # 任一缺失时 tauri-action 自动跳过签名（仍产出未签名包，不报错）。
-          # 配齐后，下载的 .app 双击即可打开、无"已损坏"/无警告。
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # 注：未做 macOS 代码签名/公证（未加入 Apple Developer Program）。
+          # 切勿在此设置空的 APPLE_SIGNING_IDENTITY —— 只要该变量存在，tauri 就会
+          # 尝试签名并因导入空证书失败而中断构建。将来要签名时，务必同时提供有效的
+          # APPLE_CERTIFICATE / APPLE_SIGNING_IDENTITY 等 Secrets。
         with:
           projectPath: frontend
           tauriScript: npm run tauri --
