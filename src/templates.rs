@@ -136,12 +136,20 @@ pub async fn update_template(
         tmpl.description = desc;
     }
     if let Some(cat) = body.category {
+        // 与 create_template 一致：分类非法直接 400。
+        if !is_valid_category(&cat) {
+            return (StatusCode::BAD_REQUEST, err("分类无效"));
+        }
         tmpl.category = cat;
     }
     if let Some(sr) = body.star_rating {
         tmpl.star_rating = sr;
     }
     if let Some(freq) = body.frequency {
+        // 与 create_template 一致：频率非法直接 400。
+        if !["daily", "weekly", "monthly"].contains(&freq.as_str()) {
+            return (StatusCode::BAD_REQUEST, err("频率无效，应为 daily/weekly/monthly"));
+        }
         tmpl.frequency = freq;
     }
     if let Some(gd) = body.generate_day {
