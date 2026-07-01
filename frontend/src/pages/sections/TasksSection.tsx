@@ -9,10 +9,11 @@ import { Modal, ModalFooter } from '@/components/ui/Modal'
 import { confirm } from '@/components/ui/ConfirmDialog'
 import { PageContainer } from '@/components/layout/PageContainer'
 import { TaskForm, emptyDraft } from '@/components/task/TaskForm'
+import { AiDraftCard } from '@/components/ai/AiDraftCard'
 import { tasksApi } from '@/api/tasks'
 import { aiApi } from '@/api/ai'
 import { useAppStore } from '@/store'
-import type { Task, Category, SortBy, DecomposeResult } from '@/types'
+import type { Task, Category, SortBy, DecomposeResult, ParsedTask } from '@/types'
 const STATUS_TABS = [
   { id: 'pending', label: '待办' },
   // 未完成 = 待办 + 已过期 合并，后端按 completed=false 过滤
@@ -90,6 +91,11 @@ export function TasksSection() {
   const [semanticResults, setSemanticResults] = useState<Task[]>([])
   const [semanticExplanation, setSemanticExplanation] = useState<string | undefined>(undefined)
   const [committedQuery, setCommittedQuery] = useState('')
+  // #8 搜索栏直接建任务：精确搜索 0 结果时用 AI 依据输入生成建议草稿，也可手动直接建。
+  const [aiCreateDraft, setAiCreateDraft] = useState<ParsedTask | null>(null)
+  const [aiCreateLoading, setAiCreateLoading] = useState(false)
+  const [aiCreateFor, setAiCreateFor] = useState('') // 已为哪个查询触发过 AI，避免重复请求
+  const [plainCreating, setPlainCreating] = useState(false)
   const [page, setPage] = useState(1)
   const [tasks, setTasks] = useState<Task[]>([])
   const [totalPages, setTotalPages] = useState(1)
@@ -330,6 +336,72 @@ export function TasksSection() {
       }
     } finally {
       setCreateLoading(false)
+    }
+  }
+
+  // #8：精确搜索且 0 结果时，自动用 AI 依据输入生成一个「创建任务」提议（每个查询只触发一次）。
+  useEffect(() => {
+    const q = search.trim()
+    if (searchMode !== 'exact' || !q || loading || tasks.length > 0) {
+      // 不满足「精确 + 有查询 + 加载完 + 0 结果」→ 收起提议（已为 null 时 React 自动跳过）。
+      setAiCreateDraft(null)
+      setAiCreateLoading(false)
+      return
+    }
+    if (aiCreateFor === q) return // 已为该查询触发过，避免重复请求
+    setAiCreateFor(q)
+    setAiCreateLoading(true)
+    setAiCreateDraft(null)
+    aiApi
+      .parse(q)
+      .then((res) => setAiCreateDraft(res.success && res.data?.items?.[0] ? res.data.items[0] : null))
+      .catch(() => setAiCreateDraft(null))
+      .finally(() => setAiCreateLoading(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchMode, search, loading, tasks.length])
+
+  // 建成后清空搜索并刷新列表，让新任务出现在完整列表中。
+  function afterCreateFromSearch() {
+    setSearch('')
+    setSearchInput('')
+    setAiCreateDraft(null)
+    setAiCreateFor('')
+    loadTasks({ silent: true })
+  }
+
+  // 接受 AI 提议入库（供 AiDraftCard 的确认按钮调用）。
+  async function createFromDraft(d: ParsedTask) {
+    const res = await tasksApi.create({
+      title: d.title,
+      description: d.description,
+      category: d.category,
+      star_rating: d.star_rating,
+      start_date: d.start_date || undefined,
+      deadline: d.deadline || undefined,
+    })
+    if (res.success) {
+      addToast({ type: 'success', message: '任务已创建' })
+      afterCreateFromSearch()
+    } else {
+      addToast({ type: 'error', message: res.message || '创建失败' })
+    }
+  }
+
+  // 手动把「刚刚输入的内容」原样建为任务（不经 AI）。
+  async function createFromInput() {
+    const q = search.trim()
+    if (!q) return
+    setPlainCreating(true)
+    try {
+      const res = await tasksApi.create({ title: q })
+      if (res.success) {
+        addToast({ type: 'success', message: '任务已创建' })
+        afterCreateFromSearch()
+      } else {
+        addToast({ type: 'error', message: res.message || '创建失败' })
+      }
+    } finally {
+      setPlainCreating(false)
     }
   }
 
@@ -646,6 +718,26 @@ export function TasksSection() {
   const displayTasks = semanticActive ? semanticResults : tasks
   const listLoading = semanticActive ? semanticLoading : loading
 
+  // #8：精确搜索时「把刚刚输入的内容建为任务」按钮（空结果与结果底部复用）。
+  const exactQuery = searchMode === 'exact' ? search.trim() : ''
+  const manualCreateBtn = exactQuery ? (
+    <button
+      onClick={createFromInput}
+      disabled={plainCreating}
+      style={{
+        display: 'flex', alignItems: 'center', gap: '5px',
+        background: 'none', border: '1px dashed var(--border-strong)',
+        borderRadius: 'var(--radius-pill)', padding: '6px 16px',
+        fontSize: 'var(--text-sm)', color: 'var(--text-secondary)',
+        cursor: plainCreating ? 'not-allowed' : 'pointer',
+        opacity: plainCreating ? 0.6 : 1, fontFamily: 'var(--font-sans)',
+      }}
+    >
+      {plainCreating ? <Spinner size={12} /> : <Plus size={13} aria-hidden />}
+      创建「{exactQuery}」为任务
+    </button>
+  ) : null
+
   return (
     <PageContainer>
       {/* Header */}
@@ -839,12 +931,39 @@ export function TasksSection() {
           <Spinner size={20} />
         </div>
       ) : displayTasks.length === 0 ? (
-        <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-base)', color: 'var(--text-muted)', textAlign: 'center', padding: '48px 0' }}>
-          {semanticActive ? '没有找到相关任务' : '暂无任务'}
-        </p>
+        <div style={{ padding: '40px 0' }}>
+          <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-base)', color: 'var(--text-muted)', textAlign: 'center', margin: 0 }}>
+            {semanticActive
+              ? '没有找到相关任务'
+              : exactQuery
+                ? `没有匹配「${exactQuery}」的任务`
+                : '暂无任务'}
+          </p>
+          {/* #8：精确搜索 0 结果 → AI 依据输入生成建议草稿（可接受），或手动直接建。 */}
+          {exactQuery && (
+            <div style={{ maxWidth: 560, margin: '20px auto 0' }}>
+              {aiCreateLoading ? (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: 'var(--text-sm)', fontFamily: 'var(--font-voice)' }}>
+                  <Spinner size={14} /> AI 正在根据「{exactQuery}」生成任务提议…
+                </div>
+              ) : aiCreateDraft ? (
+                <AiDraftCard draft={aiCreateDraft} onConfirm={createFromDraft} onDiscard={() => setAiCreateDraft(null)} />
+              ) : null}
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: aiCreateLoading || aiCreateDraft ? '16px' : 0 }}>
+                {manualCreateBtn}
+              </div>
+            </div>
+          )}
+        </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           {displayTasks.map((task) => renderTaskRow(task))}
+          {/* #8：有结果时也在底部提供「把输入建为任务」 */}
+          {exactQuery && (
+            <div style={{ display: 'flex', justifyContent: 'center', paddingTop: '16px' }}>
+              {manualCreateBtn}
+            </div>
+          )}
         </div>
       )}
 
