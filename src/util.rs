@@ -1,7 +1,7 @@
 //! 时间工具：全系统"今天/当日"统一用北京时区（UTC+8），
 //! 避免服务端日期口径(UTC)与发给大模型的 +08:00 提示词相互矛盾。
 
-use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, TimeZone, Utc, Weekday};
+use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, NaiveDateTime, TimeZone, Utc, Weekday};
 
 /// 北京时区偏移 (UTC+8)。
 pub fn beijing_offset() -> FixedOffset {
@@ -55,6 +55,32 @@ pub fn beijing_today_start_utc() -> DateTime<Utc> {
         .single()
         .map(|dt| dt.with_timezone(&Utc))
         .unwrap_or_else(Utc::now)
+}
+
+/// 宽松解析日期/时间字符串为 UTC 时刻：接受 RFC3339、纯日期 (YYYY-MM-DD)
+/// 及若干常见无时区格式；无时区者按北京时区(UTC+8)解释。
+/// 供 REST 层（HTML `<input type="date">` 传来的纯日期）与 Agent 工具复用。
+pub fn parse_flexible_date(s: &str) -> Option<DateTime<Utc>> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    if let Ok(d) = DateTime::parse_from_rfc3339(s) {
+        return Some(d.with_timezone(&Utc));
+    }
+    // 纯日期（无时刻）按 UTC 零点存储：前端以 UTC 截取 ISO 前 10 位显示日期，
+    // 若按北京零点存会落到前一天（选 15 号存成 14 号），故此处不加时区偏移。
+    if let Ok(date) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+        let ndt = date.and_hms_opt(0, 0, 0)?;
+        return Some(Utc.from_utc_datetime(&ndt));
+    }
+    let off = beijing_offset();
+    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"] {
+        if let Ok(ndt) = NaiveDateTime::parse_from_str(s, fmt) {
+            return off.from_local_datetime(&ndt).single().map(|d| d.with_timezone(&Utc));
+        }
+    }
+    None
 }
 
 #[cfg(test)]

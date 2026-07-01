@@ -31,19 +31,36 @@ pub struct CreateTaskReq {
     pub description: Option<String>,
     pub category: Option<String>,
     pub star_rating: Option<i16>,
+    #[serde(default, deserialize_with = "de_flexible_date")]
     pub start_date: Option<chrono::DateTime<Utc>>,
+    #[serde(default, deserialize_with = "de_flexible_date")]
     pub deadline: Option<chrono::DateTime<Utc>>,
     pub parent_id: Option<Uuid>,
     pub sort_order: Option<i32>,
 }
 
-/// 区分"字段缺省"(None) 与"显式传 null"(Some(None))，用于可清空的日期字段。
-fn double_option<'de, D, T>(d: D) -> Result<Option<Option<T>>, D::Error>
+/// 宽松解析日期字段：接受纯日期(YYYY-MM-DD，来自 `<input type="date">`)、
+/// RFC3339 及常见无时区格式；空串/null 视为 None。
+fn de_flexible_date<'de, D>(d: D) -> Result<Option<chrono::DateTime<Utc>>, D::Error>
 where
     D: serde::Deserializer<'de>,
-    T: serde::Deserialize<'de>,
 {
-    Ok(Some(Option::deserialize(d)?))
+    match Option::<String>::deserialize(d)? {
+        None => Ok(None),
+        Some(s) if s.trim().is_empty() => Ok(None),
+        Some(s) => crate::util::parse_flexible_date(&s)
+            .map(Some)
+            .ok_or_else(|| serde::de::Error::custom(format!("无法解析日期: {s}"))),
+    }
+}
+
+/// 区分"字段缺省"(None) 与"显式传 null/空串"(Some(None))，用于可清空的日期字段。
+/// 非空字符串按宽松规则解析。
+fn de_flexible_date_double<'de, D>(d: D) -> Result<Option<Option<chrono::DateTime<Utc>>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Some(de_flexible_date(d)?))
 }
 
 #[derive(Deserialize)]
@@ -52,9 +69,9 @@ pub struct UpdateTaskReq {
     pub description: Option<String>,
     pub category: Option<String>,
     pub star_rating: Option<i16>,
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(default, deserialize_with = "de_flexible_date_double")]
     pub start_date: Option<Option<chrono::DateTime<Utc>>>,
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(default, deserialize_with = "de_flexible_date_double")]
     pub deadline: Option<Option<chrono::DateTime<Utc>>>,
     pub completed: Option<bool>,
     pub sort_order: Option<i32>,
@@ -153,6 +170,35 @@ mod tests {
         assert_eq!(clamp_star_rating(-1), 0);
         assert_eq!(clamp_star_rating(6), 5);
         assert_eq!(clamp_star_rating(100), 5);
+    }
+
+    // ── 日期字段宽松解析 ─────────────────────────────────────────────────
+    // 回归：HTML `<input type="date">` 传来的纯日期字符串必须能被解析，
+    // 否则改截止日期后保存会 422（历史 bug）。
+    #[test]
+    fn update_req_accepts_date_only() {
+        let req: UpdateTaskReq =
+            serde_json::from_str(r#"{"deadline":"2026-06-25"}"#).expect("date-only 应可解析");
+        let dt = req.deadline.expect("字段应存在").expect("应为具体日期");
+        // 前端按 UTC 截取 ISO 前 10 位回显，故存储的 UTC 日期须与所选一致（不能差一天）。
+        assert_eq!(dt.date_naive().to_string(), "2026-06-25");
+        assert_eq!(dt.to_rfc3339(), "2026-06-25T00:00:00+00:00");
+    }
+
+    #[test]
+    fn update_req_distinguishes_absent_null_and_value() {
+        let absent: UpdateTaskReq = serde_json::from_str(r#"{}"#).unwrap();
+        assert!(absent.deadline.is_none(), "缺省=保持原值");
+
+        let cleared: UpdateTaskReq = serde_json::from_str(r#"{"deadline":null}"#).unwrap();
+        assert_eq!(cleared.deadline, Some(None), "显式 null=清空");
+    }
+
+    #[test]
+    fn create_req_accepts_date_only() {
+        let req: CreateTaskReq =
+            serde_json::from_str(r#"{"title":"t","deadline":"2026-06-25"}"#).unwrap();
+        assert!(req.deadline.is_some());
     }
 }
 
