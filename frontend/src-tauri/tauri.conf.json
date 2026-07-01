@@ -13,10 +13,11 @@
     "windows": [
       {
         "title": "TaskFlow",
-        "width": 1200,
-        "height": 800,
-        "minWidth": 880,
-        "minHeight": 600
+        "width": 1000,
+        "height": 680,
+        "minWidth": 720,
+        "minHeight": 560,
+        "center": true
       }
     ],
     "security": {
