@@ -23,12 +23,25 @@ pub(crate) struct LlmConfig {
 const DEEPSEEK_BASE: &str = "https://api.deepseek.com";
 const DEEPSEEK_MODEL: &str = "deepseek-chat";
 
+/// 简单的 base_url 安全校验（SSRF 兜底）：只接受 http/https 且 host 非空。
+/// 不做 DNS 解析，仅做形态检查，挡掉 file://、gopher://、以及空 host 之类的畸形值。
+fn is_safe_base_url(url: &str) -> bool {
+    match reqwest::Url::parse(url) {
+        Ok(u) => matches!(u.scheme(), "http" | "https") && u.host_str().is_some_and(|h| !h.is_empty()),
+        Err(_) => false,
+    }
+}
+
 /// 把"用户显式值"与"服务端默认"解析成最终 LLM 配置。
 ///
-/// 关键点：一旦用户自带了 key，base/model 留空时必须默认 DeepSeek 官方，
-/// 而**不能**回退到服务端默认的 aihubmix——否则会把用户的 DeepSeek key 发去
-/// aihubmix 导致 401（"服务不可用，请手动填写"）。只有完全没有自带 key 时，
-/// 才用服务端那套同源的完整三件套。
+/// 关键点：
+/// 1. 一旦用户自带了 key，base/model 留空时必须默认 DeepSeek 官方，
+///    而**不能**回退到服务端默认的 aihubmix——否则会把用户的 DeepSeek key 发去
+///    aihubmix 导致 401（"服务不可用，请手动填写"）。只有完全没有自带 key 时，
+///    才用服务端那套同源的完整三件套。
+/// 2. 安全底线：服务端默认 key 只能发往服务端默认 base_url。若用户覆盖了 base_url
+///    但没有自带 key，绝不能把服务端 key 发到用户可控地址（否则泄露服务端 key / SSRF），
+///    此时忽略该 base_url 覆盖，整体回退到服务端同源三件套。
 fn resolve_llm(
     user_key: Option<String>,
     user_base: Option<String>,
@@ -38,16 +51,40 @@ fn resolve_llm(
     def_model: &str,
 ) -> LlmConfig {
     match user_key {
-        Some(key) => LlmConfig {
-            api_key: key,
-            base_url: user_base.unwrap_or_else(|| DEEPSEEK_BASE.to_string()),
-            model: user_model.unwrap_or_else(|| DEEPSEEK_MODEL.to_string()),
-        },
-        None => LlmConfig {
-            api_key: def_key.to_string(),
-            base_url: user_base.unwrap_or_else(|| def_base.to_string()),
-            model: user_model.unwrap_or_else(|| def_model.to_string()),
-        },
+        Some(key) => {
+            // 自带 key：base 若提供则做 SSRF 形态校验，非法则回落 DeepSeek 官方。
+            let base = match user_base {
+                Some(b) if is_safe_base_url(&b) => b,
+                _ => DEEPSEEK_BASE.to_string(),
+            };
+            LlmConfig {
+                api_key: key,
+                base_url: base,
+                model: user_model.unwrap_or_else(|| DEEPSEEK_MODEL.to_string()),
+            }
+        }
+        None => {
+            // 无自带 key：只有在用户未覆盖 base_url（或覆盖值就等于服务端默认）时，
+            // 才使用服务端 key。否则忽略 base/model 覆盖，整体回退服务端同源三件套，
+            // 避免把服务端 key 发往用户可控地址。
+            let base_override_ok = match &user_base {
+                None => true,
+                Some(b) => b == def_base,
+            };
+            if base_override_ok {
+                LlmConfig {
+                    api_key: def_key.to_string(),
+                    base_url: def_base.to_string(),
+                    model: user_model.unwrap_or_else(|| def_model.to_string()),
+                }
+            } else {
+                LlmConfig {
+                    api_key: def_key.to_string(),
+                    base_url: def_base.to_string(),
+                    model: def_model.to_string(),
+                }
+            }
+        }
     }
 }
 
@@ -724,6 +761,75 @@ mod tests {
         assert_eq!(c.api_key, "sk-user");
         assert_eq!(c.base_url, "https://mock/v1");
         assert_eq!(c.model, "test-model");
+    }
+
+    // 安全底线：用户覆盖 base_url 但没自带 key → 绝不能把服务端 key 发去用户地址，
+    // 必须整体回退服务端同源三件套（key+base+model）。
+    #[test]
+    fn override_base_without_key_must_not_use_server_key_at_user_base() {
+        let c = resolve_llm(
+            None,
+            s("https://evil.example.com/v1"),
+            None,
+            DEF_KEY,
+            DEF_BASE,
+            DEF_MODEL,
+        );
+        // 关键断言：服务端 key 不能被发往用户可控地址。
+        assert_ne!(c.base_url, "https://evil.example.com/v1");
+        assert_eq!(c.api_key, DEF_KEY);
+        assert_eq!(c.base_url, DEF_BASE);
+        assert_eq!(c.model, DEF_MODEL);
+    }
+
+    // 无 key 且覆盖了 base 的情况下，model 覆盖也一并忽略（保持同源）。
+    #[test]
+    fn override_base_and_model_without_key_falls_back_to_server_triplet() {
+        let c = resolve_llm(
+            None,
+            s("https://evil.example.com/v1"),
+            s("evil-model"),
+            DEF_KEY,
+            DEF_BASE,
+            DEF_MODEL,
+        );
+        assert_eq!(c.api_key, DEF_KEY);
+        assert_eq!(c.base_url, DEF_BASE);
+        assert_eq!(c.model, DEF_MODEL);
+    }
+
+    // 无 key、只覆盖 model（base 未覆盖）→ 仍用服务端 key+base，model 采用覆盖值。
+    #[test]
+    fn override_model_only_without_key_keeps_server_key_and_base() {
+        let c = resolve_llm(None, None, s("custom-model"), DEF_KEY, DEF_BASE, DEF_MODEL);
+        assert_eq!(c.api_key, DEF_KEY);
+        assert_eq!(c.base_url, DEF_BASE);
+        assert_eq!(c.model, "custom-model");
+    }
+
+    // 自带 key 但 base_url 非法（非 http/https 或空 host）→ 回落 DeepSeek 官方，不发去畸形地址。
+    #[test]
+    fn byo_key_with_malformed_base_falls_back_to_deepseek() {
+        let c = resolve_llm(
+            s("sk-user"),
+            s("file:///etc/passwd"),
+            None,
+            DEF_KEY,
+            DEF_BASE,
+            DEF_MODEL,
+        );
+        assert_eq!(c.api_key, "sk-user");
+        assert_eq!(c.base_url, "https://api.deepseek.com");
+    }
+
+    #[test]
+    fn is_safe_base_url_rejects_bad_schemes_and_empty_host() {
+        assert!(super::is_safe_base_url("https://api.deepseek.com"));
+        assert!(super::is_safe_base_url("http://localhost:8080/v1"));
+        assert!(!super::is_safe_base_url("file:///etc/passwd"));
+        assert!(!super::is_safe_base_url("ftp://example.com"));
+        assert!(!super::is_safe_base_url("not-a-url"));
+        assert!(!super::is_safe_base_url(""));
     }
 
     #[test]
