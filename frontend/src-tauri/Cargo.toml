@@ -1,6 +1,6 @@
 [package]
 name = "taskflow-desktop"
-version = "2.0.0"
+version = "2.0.1"
 description = "TaskFlow 智能化 GTD 桌面端"
 edition = "2021"
 
