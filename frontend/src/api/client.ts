@@ -4,8 +4,30 @@
  * (Web defaults to '/api' via Vite proxy; desktop injects VITE_API_BASE at build.)
  */
 
+import { useAppStore } from '@/store'
+
 function getBase(): string {
   return (import.meta.env.VITE_API_BASE as string | undefined) || '/api'
+}
+
+// 会话过期(401)时清掉本地会话并跳登录页，避免用户被卡死。
+// 防抖：短时间内多个请求同时 401 只跳一次。
+let redirecting = false
+function handleExpiredSession() {
+  if (redirecting) return
+  redirecting = true
+  useAppStore.getState().clearSession()
+  if (window.location.pathname !== '/login') window.location.assign('/login')
+}
+
+// 兜底解析：响应非 JSON(500 HTML / 413 / body 解析失败)时返回合成错误而非抛出，
+// 让缺少 try/catch 的调用方也能优雅降级。
+async function safeJson<T>(res: Response): Promise<ApiResponse<T>> {
+  try {
+    return await res.json()
+  } catch {
+    return { success: false, message: '服务异常' }
+  }
 }
 
 function sessionId(): string | null {
@@ -44,7 +66,11 @@ async function request<T = unknown>(
 
   const base = getBase()
   const res = await fetch(`${base}${path}`, { ...options, headers })
-  const json: ApiResponse<T> = await res.json()
+  const json = await safeJson<T>(res)
+  // 后端鉴权失败返回 401(JSON body)；或个别接口 200 带 {success:false,message:'未登录'}。
+  if (res.status === 401 || (!json.success && json.message === '未登录')) {
+    handleExpiredSession()
+  }
   return json
 }
 
@@ -75,7 +101,11 @@ export const api = {
     if (sid) headers['X-Session-Id'] = sid
     const base = getBase()
     const res = await fetch(`${base}${path}`, { method: 'POST', headers, body: form })
-    return res.json()
+    const json = await safeJson<T>(res)
+    if (res.status === 401 || (!json.success && json.message === '未登录')) {
+      handleExpiredSession()
+    }
+    return json
   },
 
   download: async (path: string): Promise<Blob> => {
@@ -84,6 +114,7 @@ export const api = {
     if (sid) headers['X-Session-Id'] = sid
     const base = getBase()
     const res = await fetch(`${base}${path}`, { method: 'GET', headers })
+    if (res.status === 401) handleExpiredSession()
     if (!res.ok) throw new Error('Download failed')
     return res.blob()
   },
