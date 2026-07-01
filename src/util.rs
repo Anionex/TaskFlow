@@ -57,10 +57,20 @@ pub fn beijing_today_start_utc() -> DateTime<Utc> {
         .unwrap_or_else(Utc::now)
 }
 
+/// 纯日期（YYYY-MM-DD，无时刻）按哪个时区的零点解释——两处调用语义有意不同。
+#[derive(Clone, Copy)]
+pub enum DateOnlyTz {
+    /// UTC 零点：用于 HTML `<input type="date">` 往返（前端按 UTC 截取 ISO 前 10 位回显，
+    /// 若按北京零点存会落到前一天）。
+    Utc,
+    /// 北京零点：用于自然语言/相对时间（"明天截止"应落在北京当天）。
+    Beijing,
+}
+
 /// 宽松解析日期/时间字符串为 UTC 时刻：接受 RFC3339、纯日期 (YYYY-MM-DD)
-/// 及若干常见无时区格式；无时区者按北京时区(UTC+8)解释。
-/// 供 REST 层（HTML `<input type="date">` 传来的纯日期）与 Agent 工具复用。
-pub fn parse_flexible_date(s: &str) -> Option<DateTime<Utc>> {
+/// 及若干常见无时区格式。带时刻但无时区者一律按北京时区(UTC+8)解释；纯日期按
+/// `date_only` 指定的时区零点解释。供 REST 层与 Agent 工具复用（仅纯日期口径不同）。
+pub fn parse_flexible_date(s: &str, date_only: DateOnlyTz) -> Option<DateTime<Utc>> {
     let s = s.trim();
     if s.is_empty() {
         return None;
@@ -68,11 +78,15 @@ pub fn parse_flexible_date(s: &str) -> Option<DateTime<Utc>> {
     if let Ok(d) = DateTime::parse_from_rfc3339(s) {
         return Some(d.with_timezone(&Utc));
     }
-    // 纯日期（无时刻）按 UTC 零点存储：前端以 UTC 截取 ISO 前 10 位显示日期，
-    // 若按北京零点存会落到前一天（选 15 号存成 14 号），故此处不加时区偏移。
     if let Ok(date) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
         let ndt = date.and_hms_opt(0, 0, 0)?;
-        return Some(Utc.from_utc_datetime(&ndt));
+        return Some(match date_only {
+            DateOnlyTz::Utc => Utc.from_utc_datetime(&ndt),
+            DateOnlyTz::Beijing => beijing_offset()
+                .from_local_datetime(&ndt)
+                .single()?
+                .with_timezone(&Utc),
+        });
     }
     let off = beijing_offset();
     for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"] {
@@ -94,5 +108,31 @@ mod tests {
         let bj = start.with_timezone(&beijing_offset());
         assert_eq!(bj.time(), chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap());
         assert_eq!(bj.date_naive(), beijing_today());
+    }
+
+    #[test]
+    fn parse_flexible_date_formats_and_zones() {
+        // RFC3339 原样按其时区解析
+        assert_eq!(
+            parse_flexible_date("2026-07-01T18:00:00+08:00", DateOnlyTz::Utc).unwrap().to_rfc3339(),
+            "2026-07-01T10:00:00+00:00"
+        );
+        // 纯日期：两种零点口径有意不同
+        assert_eq!(
+            parse_flexible_date("2026-06-25", DateOnlyTz::Utc).unwrap().to_rfc3339(),
+            "2026-06-25T00:00:00+00:00"
+        );
+        assert_eq!(
+            parse_flexible_date("2026-06-25", DateOnlyTz::Beijing).unwrap().to_rfc3339(),
+            "2026-06-24T16:00:00+00:00" // 北京 6-25 00:00 == UTC 6-24 16:00
+        );
+        // 带时刻无时区：一律按北京解释
+        assert_eq!(
+            parse_flexible_date("2026-06-25 09:30", DateOnlyTz::Utc).unwrap().to_rfc3339(),
+            "2026-06-25T01:30:00+00:00"
+        );
+        // 非法/空
+        assert!(parse_flexible_date("下周三", DateOnlyTz::Utc).is_none());
+        assert!(parse_flexible_date("  ", DateOnlyTz::Beijing).is_none());
     }
 }

@@ -48,7 +48,7 @@ where
     match Option::<String>::deserialize(d)? {
         None => Ok(None),
         Some(s) if s.trim().is_empty() => Ok(None),
-        Some(s) => crate::util::parse_flexible_date(&s)
+        Some(s) => crate::util::parse_flexible_date(&s, crate::util::DateOnlyTz::Utc)
             .map(Some)
             .ok_or_else(|| serde::de::Error::custom(format!("无法解析日期: {s}"))),
     }

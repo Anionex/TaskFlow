@@ -251,9 +251,9 @@ fn dangling_tool_call_ids(messages: &[Value]) -> Vec<String> {
 // ── 日期/字段解析 ──────────────────────────────────────────────────────────
 
 /// 宽松解析模型给的时间字符串：RFC3339（带时区）/ 纯日期 / "日期 时:分[:秒]"。
-/// 纯日期与无时区的形式按北京时区(UTC+8)解释，与系统其它处口径一致。
+/// 自然语言场景纯日期按北京零点解释（"明天截止"应落在北京当天）。
 fn parse_dt_str(s: &str) -> Option<DateTime<Utc>> {
-    crate::util::parse_flexible_date(s)
+    crate::util::parse_flexible_date(s, crate::util::DateOnlyTz::Beijing)
 }
 
 fn parse_dt(v: Option<&Value>) -> Option<DateTime<Utc>> {
