@@ -14,6 +14,7 @@ import { AiDraftCard } from '@/components/ai/AiDraftCard'
 import { tasksApi } from '@/api/tasks'
 import { aiApi } from '@/api/ai'
 import { useAppStore } from '@/store'
+import { useIsMobile } from '@/lib/useIsMobile'
 import type { Task, Category, SortBy, DecomposeResult, ParsedTask } from '@/types'
 const STATUS_TABS = [
   { id: 'pending', label: '待办' },
@@ -79,6 +80,8 @@ function ProgressMeter({ done, total }: { done: number; total: number }) {
 
 export function TasksSection() {
   const { addToast } = useAppStore()
+  // 窄屏：任务行改为「标题独占一行 + 分类/星级/截止另起一行」，避免固定列挤没标题。
+  const isMobile = useIsMobile()
   const [tab, setTab] = useState<StatusTab>('pending')
   // 当前状态标签（待办/已完成/已过期），供清空确认与按钮文案复用。
   const statusLabel = STATUS_TABS.find((t) => t.id === tab)!.label
@@ -587,94 +590,88 @@ export function TasksSection() {
     const overdue = isOverdue(task)
     const isSelected = selected.has(task.id)
 
+    const iconBtn: React.CSSProperties = { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', padding: '3px' }
+
+    const completeToggle = (
+      <button
+        onClick={(e) => { e.stopPropagation(); toggleTask(task.id) }}
+        aria-label={task.completed ? '标记未完成' : '标记完成'}
+        style={{ background: 'none', border: 'none', cursor: 'pointer', color: task.completed ? 'var(--success)' : 'var(--border-strong)', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+      >
+        {task.completed ? <CheckSquare size={16} /> : <Square size={16} />}
+      </button>
+    )
+    const collapseToggle = isGroup ? (
+      <button
+        onClick={(e) => { e.stopPropagation(); toggleCollapse(task.id) }}
+        aria-label={isCollapsed ? '展开' : '收起'}
+        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+      >
+        {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+      </button>
+    ) : null
+    const titleBlock = (
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{
+          fontSize: 'var(--text-sm)',
+          color: task.completed ? 'var(--text-muted)' : 'var(--text-primary)',
+          textDecoration: task.completed ? 'line-through' : 'none',
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+        }}>
+          {task.title}
+        </div>
+        {isGroup && (
+          <ProgressMeter done={task.subtask_completed ?? 0} total={task.subtask_total ?? 0} />
+        )}
+      </div>
+    )
+    const deadlineEl = task.deadline ? (
+      <span style={{ fontSize: 'var(--text-xs)', color: overdue ? 'var(--danger)' : 'var(--text-muted)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
+        {formatDate(task.deadline)}
+      </span>
+    ) : null
+    const actionsEl = (
+      <>
+        <button onClick={(e) => { e.stopPropagation(); openEdit(task) }} aria-label="编辑" style={iconBtn}><Edit2 size={13} /></button>
+        <button onClick={(e) => { e.stopPropagation(); deleteTask(task.id) }} aria-label="删除" style={iconBtn}><Trash2 size={13} /></button>
+      </>
+    )
+    const rowClick = () => (selectMode ? toggleSelect(task.id) : openEdit(task))
+    const rowBase: React.CSSProperties = { borderBottom: '1px solid var(--border)', background: isSelected ? 'var(--accent-soft)' : 'transparent', transition: 'background var(--dur-fast)', cursor: 'pointer' }
+
     return (
       <div key={task.id}>
         {/* Task row：多选模式下点击行切换选中，否则打开编辑卡 */}
-        <div
-          onClick={() => (selectMode ? toggleSelect(task.id) : openEdit(task))}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            padding: '10px 4px',
-            borderBottom: '1px solid var(--border)',
-            background: isSelected ? 'var(--accent-soft)' : 'transparent',
-            transition: 'background var(--dur-fast)',
-            cursor: 'pointer',
-          }}
-        >
-          {/* Complete toggle */}
-          <button
-            onClick={(e) => { e.stopPropagation(); toggleTask(task.id) }}
-            aria-label={task.completed ? '标记未完成' : '标记完成'}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: task.completed ? 'var(--success)' : 'var(--border-strong)', display: 'flex', alignItems: 'center', flexShrink: 0 }}
-          >
-            {task.completed ? <CheckSquare size={16} /> : <Square size={16} />}
-          </button>
-
-          {/* Collapse toggle for groups */}
-          {isGroup && (
-            <button
-              onClick={(e) => { e.stopPropagation(); toggleCollapse(task.id) }}
-              aria-label={isCollapsed ? '展开' : '收起'}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', flexShrink: 0 }}
-            >
-              {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-            </button>
-          )}
-
-          {/* Title */}
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{
-              fontSize: 'var(--text-sm)',
-              color: task.completed ? 'var(--text-muted)' : 'var(--text-primary)',
-              textDecoration: task.completed ? 'line-through' : 'none',
-              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-            }}>
-              {task.title}
+        {isMobile ? (
+          // 窄屏：标题+操作一行，分类/星级/截止另起一行，标题始终有空间。
+          <div onClick={rowClick} style={{ ...rowBase, display: 'flex', flexDirection: 'column', gap: '6px', padding: '10px 4px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {completeToggle}
+              {collapseToggle}
+              {titleBlock}
+              <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>{actionsEl}</div>
             </div>
-            {isGroup && (
-              <ProgressMeter done={task.subtask_completed ?? 0} total={task.subtask_total ?? 0} />
-            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', paddingLeft: '26px' }}>
+              <CategoryPill cat={task.category} />
+              <StarRating value={task.star_rating} readonly size="sm" />
+              {deadlineEl}
+            </div>
           </div>
-
-          {/* Category */}
-          <div style={{ width: CAT_COL, flexShrink: 0, display: 'flex', justifyContent: 'flex-start' }}>
-            <CategoryPill cat={task.category} />
+        ) : (
+          <div onClick={rowClick} style={{ ...rowBase, display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 4px' }}>
+            {completeToggle}
+            {collapseToggle}
+            {titleBlock}
+            <div style={{ width: CAT_COL, flexShrink: 0, display: 'flex', justifyContent: 'flex-start' }}>
+              <CategoryPill cat={task.category} />
+            </div>
+            <div style={{ width: STAR_COL, flexShrink: 0, display: 'flex', justifyContent: 'flex-start' }}>
+              <StarRating value={task.star_rating} readonly size="sm" />
+            </div>
+            <div style={{ width: DATE_COL, flexShrink: 0, textAlign: 'right' }}>{deadlineEl}</div>
+            <div style={{ width: ACTIONS_COL, flexShrink: 0, display: 'flex', gap: '4px', justifyContent: 'flex-end' }}>{actionsEl}</div>
           </div>
-
-          {/* Star */}
-          <div style={{ width: STAR_COL, flexShrink: 0, display: 'flex', justifyContent: 'flex-start' }}>
-            <StarRating value={task.star_rating} readonly size="sm" />
-          </div>
-
-          {/* Deadline (always reserve the slot, even when empty) */}
-          <div style={{ width: DATE_COL, flexShrink: 0, textAlign: 'right' }}>
-            {task.deadline && (
-              <span style={{ fontSize: 'var(--text-xs)', color: overdue ? 'var(--danger)' : 'var(--text-muted)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
-                {formatDate(task.deadline)}
-              </span>
-            )}
-          </div>
-
-          {/* Actions */}
-          <div style={{ width: ACTIONS_COL, flexShrink: 0, display: 'flex', gap: '4px', justifyContent: 'flex-end' }}>
-            <button
-              onClick={(e) => { e.stopPropagation(); openEdit(task) }}
-              aria-label="编辑"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', padding: '3px' }}
-            >
-              <Edit2 size={13} />
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); deleteTask(task.id) }}
-              aria-label="删除"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', padding: '3px' }}
-            >
-              <Trash2 size={13} />
-            </button>
-          </div>
-        </div>
+        )}
 
         {/* Subtasks (if group and not collapsed) */}
         {isGroup && !isCollapsed && task.subtasks && task.subtasks.map((sub) => (
@@ -684,10 +681,10 @@ export function TasksSection() {
               display: 'flex',
               alignItems: 'center',
               gap: '10px',
-              padding: '8px 4px 8px 44px',
+              padding: isMobile ? '8px 4px 8px 30px' : '8px 4px 8px 44px',
               borderBottom: '1px solid var(--border)',
               borderLeft: '2px solid var(--border)',
-              marginLeft: '24px',
+              marginLeft: isMobile ? '12px' : '24px',
             }}
           >
             <button
@@ -704,9 +701,10 @@ export function TasksSection() {
               {sub.sort_order}.
             </span>
             <span style={{
-              fontSize: 'var(--text-sm)', flex: 1,
+              fontSize: 'var(--text-sm)', flex: 1, minWidth: 0,
               color: sub.completed ? 'var(--text-muted)' : 'var(--text-primary)',
               textDecoration: sub.completed ? 'line-through' : 'none',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
             }}>
               {sub.title}
             </span>
@@ -714,9 +712,13 @@ export function TasksSection() {
             <div style={{ width: STAR_COL, flexShrink: 0, display: 'flex', justifyContent: 'flex-start' }}>
               <StarRating value={sub.star_rating} readonly size="sm" />
             </div>
-            {/* Reserve deadline + actions columns so subtask stars line up */}
-            <div style={{ width: DATE_COL, flexShrink: 0 }} />
-            <div style={{ width: ACTIONS_COL, flexShrink: 0 }} />
+            {/* 桌面下保留 deadline+actions 占位列让星级对齐；窄屏省去 */}
+            {!isMobile && (
+              <>
+                <div style={{ width: DATE_COL, flexShrink: 0 }} />
+                <div style={{ width: ACTIONS_COL, flexShrink: 0 }} />
+              </>
+            )}
           </div>
         ))}
       </div>
