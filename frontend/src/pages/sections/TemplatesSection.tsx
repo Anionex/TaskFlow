@@ -157,6 +157,22 @@ export function TemplatesSection() {
     setDraft((d) => ({ ...d, [k]: v }))
   }
 
+  // generate_day 的取值范围随频率而变：weekly 0-6(0=周日)，monthly 1-31，daily 忽略。
+  function dayRange(freq?: Frequency): { min: number; max: number } {
+    if (freq === 'weekly') return { min: 0, max: 6 }
+    return { min: 1, max: 31 } // monthly
+  }
+
+  // 切换频率时把 generate_day 夹到新范围，防止提交过期的越界值。
+  function setFrequency(freq: Frequency) {
+    const { min, max } = dayRange(freq)
+    setDraft((d) => ({
+      ...d,
+      frequency: freq,
+      generate_day: Math.min(max, Math.max(min, d.generate_day ?? min)),
+    }))
+  }
+
   return (
     <PageContainer width={860}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
@@ -252,14 +268,30 @@ export function TemplatesSection() {
             </select>
           </Field>
           <Field label="重复频率">
-            <select value={draft.frequency ?? 'daily'} onChange={(e) => set('frequency', e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }} onFocus={focusIn as any} onBlur={focusOut as any}>
+            <select value={draft.frequency ?? 'daily'} onChange={(e) => setFrequency(e.target.value as Frequency)} style={{ ...inputStyle, cursor: 'pointer' }} onFocus={focusIn as any} onBlur={focusOut as any}>
               {FREQUENCIES.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
             </select>
           </Field>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-          <Field label={`生成${draft.frequency === 'monthly' ? '日(1-31)' : draft.frequency === 'weekly' ? '星期几(0=周日)' : '(填0)'}`}>
-            <input type="number" min={0} max={31} value={draft.generate_day ?? 0} onChange={(e) => set('generate_day', Number(e.target.value))} style={inputStyle} onFocus={focusIn} onBlur={focusOut} />
+          <Field label={`生成${draft.frequency === 'monthly' ? '日(1-31)' : draft.frequency === 'weekly' ? '星期几(0=周日)' : '(每天不适用)'}`}>
+            {draft.frequency === 'daily' ? (
+              <input type="number" value="" disabled style={{ ...inputStyle, opacity: 0.5, cursor: 'not-allowed' }} />
+            ) : (
+              <input
+                type="number"
+                min={dayRange(draft.frequency).min}
+                max={dayRange(draft.frequency).max}
+                value={draft.generate_day ?? dayRange(draft.frequency).min}
+                onChange={(e) => {
+                  const { min, max } = dayRange(draft.frequency)
+                  set('generate_day', Math.min(max, Math.max(min, Number(e.target.value))))
+                }}
+                style={inputStyle}
+                onFocus={focusIn}
+                onBlur={focusOut}
+              />
+            )}
           </Field>
           <Field label="生成时间">
             <input type="time" value={draft.generate_time ?? '08:00'} onChange={(e) => set('generate_time', e.target.value)} style={inputStyle} onFocus={focusIn} onBlur={focusOut} />
