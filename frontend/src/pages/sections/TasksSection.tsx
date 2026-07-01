@@ -214,9 +214,20 @@ export function TasksSection() {
     }
   }
 
+  // 把某任务按原下标插回列表；下标越界（并发下前面的行已变动）时退化为追加，保证行不丢失。
+  function insertAt(list: Task[], task: Task, index: number): Task[] {
+    if (list.some((t) => t.id === task.id)) return list
+    const next = list.slice()
+    next.splice(Math.min(index, next.length), 0, task)
+    return next
+  }
+
   async function deleteTask(id: string) {
-    // 乐观移除该行；失败则回滚快照（loadTasks 无法恢复 semanticResults，语义模式下会丢行）。
-    const snapshot = { tasks, semanticResults, total }
+    // 乐观移除该行；失败时只把这一行按原位插回（函数式更新，可与并发操作叠加而不覆写整表）。
+    const removedTasks = tasks.find((t) => t.id === id)
+    const removedTasksIdx = tasks.findIndex((t) => t.id === id)
+    const removedSemantic = semanticResults.find((t) => t.id === id)
+    const removedSemanticIdx = semanticResults.findIndex((t) => t.id === id)
     patchLists((l) => l.filter((t) => t.id !== id))
     setTotal((n) => Math.max(0, n - 1))
     const res = await tasksApi.delete(id)
@@ -224,9 +235,9 @@ export function TasksSection() {
       addToast({ type: 'success', message: '已移至回收站' })
     } else {
       addToast({ type: 'error', message: '删除失败' })
-      setTasks(snapshot.tasks)
-      setSemanticResults(snapshot.semanticResults)
-      setTotal(snapshot.total)
+      if (removedTasks) setTasks((prev) => insertAt(prev, removedTasks, removedTasksIdx))
+      if (removedSemantic) setSemanticResults((prev) => insertAt(prev, removedSemantic, removedSemanticIdx))
+      setTotal((n) => n + 1)
     }
   }
 
@@ -234,8 +245,14 @@ export function TasksSection() {
     if (selected.size === 0) return
     const ids = Array.from(selected)
     setBatchDeleting(true)
-    // 失败回滚快照（保留 semanticResults，避免语义模式丢行）。
-    const snapshot = { tasks, semanticResults, total }
+    // 失败时逐条把被删的行按原位插回（函数式更新，与并发操作叠加而不覆写整表）。
+    // 记录被删任务及其原下标，升序插回以尽量还原相对顺序。
+    const removedTasks = tasks
+      .map((t, i) => ({ t, i }))
+      .filter(({ t }) => selected.has(t.id))
+    const removedSemantic = semanticResults
+      .map((t, i) => ({ t, i }))
+      .filter(({ t }) => selected.has(t.id))
     patchLists((l) => l.filter((t) => !selected.has(t.id)))
     setTotal((n) => Math.max(0, n - ids.length))
     setSelected(new Set())
@@ -245,9 +262,13 @@ export function TasksSection() {
         addToast({ type: 'success', message: `已删除 ${ids.length} 个任务` })
       } else {
         addToast({ type: 'error', message: '删除失败' })
-        setTasks(snapshot.tasks)
-        setSemanticResults(snapshot.semanticResults)
-        setTotal(snapshot.total)
+        if (removedTasks.length) {
+          setTasks((prev) => removedTasks.reduce((acc, { t, i }) => insertAt(acc, t, i), prev))
+        }
+        if (removedSemantic.length) {
+          setSemanticResults((prev) => removedSemantic.reduce((acc, { t, i }) => insertAt(acc, t, i), prev))
+        }
+        setTotal((n) => n + ids.length)
       }
     } finally {
       setBatchDeleting(false)
@@ -257,8 +278,11 @@ export function TasksSection() {
   async function handleClearStatus() {
     // 明确提示：清空的是当前「状态」下的全部任务，而非选中项。
     if (!window.confirm(`确认清空「${statusLabel}」下的全部任务？此操作不可撤销`)) return
-    // 失败回滚快照（保留 semanticResults 口径一致，虽本操作仅精确模式可用）。
-    const snapshot = { tasks, semanticResults, total }
+    // 整表清空：这里的快照恢复可接受（清空后列表为 []，并发风险低）。
+    // 但仍用函数式 setState，并加“仅当列表仍为空时才恢复”的守卫，避免覆盖期间新到的行。
+    const snapshotTasks = tasks
+    const snapshotSemantic = semanticResults
+    const snapshotTotal = total
     patchLists(() => [])
     setTotal(0)
     setSelected(new Set())
@@ -267,9 +291,9 @@ export function TasksSection() {
       addToast({ type: 'success', message: '已清空' })
     } else {
       addToast({ type: 'error', message: '清空失败' })
-      setTasks(snapshot.tasks)
-      setSemanticResults(snapshot.semanticResults)
-      setTotal(snapshot.total)
+      setTasks((prev) => (prev.length === 0 ? snapshotTasks : prev))
+      setSemanticResults((prev) => (prev.length === 0 ? snapshotSemantic : prev))
+      setTotal((n) => (n === 0 ? snapshotTotal : n))
     }
   }
 
@@ -316,9 +340,17 @@ export function TasksSection() {
   async function handleEdit() {
     if (!editTask || !editDraft.title.trim()) return
     const id = editTask.id
-    // 乐观改本地字段并立即关闭弹窗；失败回滚快照，成功后按显示的列表校正派生字段
+    // 乐观改本地字段并立即关闭弹窗；失败时只对这一行做逆向 map 还原改动的字段
+    //（函数式更新，不覆写整表），成功后按显示的列表校正派生字段
     //（日期归一化、过期态等）。loadTasks 只刷新 tasks，语义模式需重跑检索。
-    const snapshot = { tasks, semanticResults }
+    const prevFields = {
+      title: editTask.title,
+      description: editTask.description,
+      category: editTask.category,
+      star_rating: editTask.star_rating,
+      start_date: editTask.start_date,
+      deadline: editTask.deadline,
+    }
     patchLists((l) =>
       l.map((t) =>
         t.id === id
@@ -349,8 +381,7 @@ export function TasksSection() {
       else loadTasks({ silent: true })
     } else {
       addToast({ type: 'error', message: res.message })
-      setTasks(snapshot.tasks)
-      setSemanticResults(snapshot.semanticResults)
+      patchLists((l) => l.map((t) => (t.id === id ? { ...t, ...prevFields } : t)))
     }
   }
 
@@ -373,8 +404,8 @@ export function TasksSection() {
     if (!rewriteTask || !rewriteResult) return
     const id = rewriteTask.id
     const newTitle = rewriteResult.suggested_title
-    // 失败回滚快照（保留 semanticResults，避免语义模式丢行）。
-    const snapshot = { tasks, semanticResults }
+    // 失败时只对这一行逆向 map 还原旧标题（函数式更新，不覆写整表）。
+    const prevTitle = rewriteTask.title
     patchLists((l) => l.map((t) => (t.id === id ? { ...t, title: newTitle } : t)))
     setRewriteTask(null)
     setRewriteResult(null)
@@ -383,8 +414,7 @@ export function TasksSection() {
       addToast({ type: 'success', message: '标题已更新' })
     } else {
       addToast({ type: 'error', message: res.message || '更新失败' })
-      setTasks(snapshot.tasks)
-      setSemanticResults(snapshot.semanticResults)
+      patchLists((l) => l.map((t) => (t.id === id ? { ...t, title: prevTitle } : t)))
     }
   }
 
