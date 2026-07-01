@@ -122,12 +122,14 @@ pub fn is_valid_category(category: &str) -> bool {
 
 /// 任务状态过滤的 SQL 片段（以 " AND ..." 开头，可直接拼到 WHERE 之后）。
 /// `prefix` 是列前缀，如 "t." 或 ""（按 FROM 是否带别名）。
-/// status 取值仅服务端枚举，安全可内联：completed / expired / pending。
+/// status 取值仅服务端枚举，安全可内联：completed / expired / pending / incomplete。
+/// incomplete = 未完成（待办 + 已过期，即 completed=false，不看截止时间）。
 /// 其它值（含空）不按状态过滤。
 pub fn status_filter_sql(status: Option<&str>, prefix: &str) -> String {
     let p = prefix;
     match status {
         Some("completed") => format!(" AND {p}completed = true"),
+        Some("incomplete") => format!(" AND {p}completed = false"),
         Some("expired") => {
             format!(" AND {p}completed = false AND {p}deadline IS NOT NULL AND {p}deadline < now()")
         }
@@ -176,6 +178,20 @@ mod tests {
         assert_eq!(clamp_star_rating(-1), 0);
         assert_eq!(clamp_star_rating(6), 5);
         assert_eq!(clamp_star_rating(100), 5);
+    }
+
+    // ── 状态过滤 SQL 片段 ────────────────────────────────────────────────
+    // 未完成（incomplete）= 待办 + 已过期，即 completed=false，不看截止时间。
+    #[test]
+    fn incomplete_status_filter_sql() {
+        assert_eq!(
+            status_filter_sql(Some("incomplete"), "t."),
+            " AND t.completed = false"
+        );
+        assert_eq!(
+            status_filter_sql(Some("incomplete"), ""),
+            " AND completed = false"
+        );
     }
 
     // ── 日期字段宽松解析 ─────────────────────────────────────────────────
@@ -646,6 +662,11 @@ pub async fn clear_tasks(
         "expired" => {
             "UPDATE tasks SET deleted_at=$1 \
              WHERE user_id=$2 AND deleted_at IS NULL AND completed=false AND deadline < $1"
+        }
+        "incomplete" => {
+            // 未完成 = 待办 + 已过期（completed=false，不看截止时间）
+            "UPDATE tasks SET deleted_at=$1 \
+             WHERE user_id=$2 AND deleted_at IS NULL AND completed=false"
         }
         _ => {
             // pending = not completed, not expired
