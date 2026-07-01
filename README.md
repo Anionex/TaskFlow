@@ -5,7 +5,7 @@
 TaskFlow 是一个**智能化 GTD（个人任务管理）系统**：用自然语言说出想做的事，系统用大模型自动解析成结构化、可执行、可推进的任务。核心理念是「用户少操作，系统多理解」。
 
 - **在线使用（网页版）**：https://taskflowai.asia
-- **桌面版下载**：见 [GitHub Releases](../../releases) —— `TaskFlow_2.0.0_aarch64.dmg`（macOS Apple Silicon）、`TaskFlow_2.0.0_x64-setup.exe`（Windows x64）
+- **桌面版下载**：见 [GitHub Releases](../../releases) —— `TaskFlow_2.0.1_aarch64.dmg`（macOS Apple Silicon）、`TaskFlow_2.0.1_x64-setup.exe`（Windows x64）
 
 技术栈：**Rust + Axum**（部署式后端）· **React + TypeScript + Vite**（网页/桌面共用前端）· **Tauri v2**（桌面外壳）· **Supabase / PostgreSQL**（中央数据库）· **OpenAI 兼容大模型**（默认经 aihubmix）。
 
