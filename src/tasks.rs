@@ -255,7 +255,9 @@ pub async fn list_tasks(
     let page = q.page.unwrap_or(1).max(1);
     // 下界钳到 1，避免 per_page=0 触发 total_pages 计算时的整数除零 panic。
     let per_page = clamp_per_page(q.per_page);
-    let offset = (page - 1) * per_page;
+    // page 无上界，(page-1)*per_page 对超大 page 会 i64 溢出（debug/测试构建 panic，release 得到垃圾值）。
+    // page>=1、per_page>=1 时 offset 恒非负，用 saturating_mul 封顶到 i64::MAX 即可安全。
+    let offset = (page - 1).saturating_mul(per_page);
 
     // We build a fixed query supporting optional filters
     let category_filter = q.category.as_deref().unwrap_or("");
