@@ -73,6 +73,8 @@ export const agentApi = {
       return
     }
     if (!res.ok || !res.body) {
+      // 已被中止（如被更新的流替换）：与其它中止路径一致，静默返回不回调 onError
+      if (signal?.aborted) return
       h.onError?.(`服务异常（${res.status}）`)
       return
     }

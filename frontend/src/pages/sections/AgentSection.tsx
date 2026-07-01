@@ -14,7 +14,7 @@ import { useAppStore } from '@/store'
 import type { AgentMessage, AgentStep, AgentPending } from '@/types'
 
 type ChatItem =
-  | { type: 'user'; text: string }
+  | { type: 'user'; text: string; id: number }
   | { type: 'steps'; steps: AgentStep[] }
   | { type: 'assistant'; text: string }
 
@@ -98,8 +98,8 @@ export function AgentSection() {
 
   // 调用方负责同步置位 inFlightRef 后再进入；这里在结束时复位。
   const runChat = useCallback(
-    // retryText 仅在 send() 路径传入：出错时用它回滚 transcript 用户气泡并还原输入
-    async (payload: Payload, retryText?: string) => {
+    // retry 仅在 send() 路径传入：出错时按 id 精确回滚本轮用户气泡，并在输入框为空时还原文本
+    async (payload: Payload, retry?: { text: string; id: number }) => {
       // 开新流前先中止上一条在途流，避免连接泄漏与回调串扰
       abortRef.current?.abort()
       const controller = new AbortController()
@@ -164,14 +164,16 @@ export function AgentSection() {
           // 用户气泡推进 transcript。若不回滚，下一轮会用缺了这一条的旧 messages 重发，
           // transcript 与后端上下文就此错位。这里回滚该用户气泡并还原输入，方便重试。
           // （accept/reject 不加用户气泡、且失败前 messages 未变，无需回滚。）
-          if (retryText !== undefined) {
+          if (retry !== undefined) {
+            // 按 id 精确定位本轮气泡：仅当它仍是末尾项时才弹出，避免文本相同的历史气泡被误删
             setTranscript((prev) => {
               const n = [...prev]
               const last = n[n.length - 1]
-              if (last && last.type === 'user' && last.text === retryText) n.pop()
+              if (last && last.type === 'user' && last.id === retry.id) n.pop()
               return n
             })
-            setInput(retryText)
+            // 只在输入框为空时还原文本，别覆盖用户等待期间新输入的内容
+            setInput((cur) => (cur === '' ? retry.text : cur))
           }
           resetLive()
         },
@@ -206,9 +208,11 @@ export function AgentSection() {
     const t = text.trim()
     if (!t || pending || inFlightRef.current) return
     inFlightRef.current = true
-    setTranscript((prev) => [...prev, { type: 'user', text: t }])
+    // 本轮气泡的稳定标识：出错回滚时据此精确定位，不靠文本相等
+    const id = Date.now() + Math.random()
+    setTranscript((prev) => [...prev, { type: 'user', text: t, id }])
     setInput('')
-    void runChat({ messages, user_input: t }, t)
+    void runChat({ messages, user_input: t }, { text: t, id })
   }
 
   function accept() {
