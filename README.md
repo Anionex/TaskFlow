@@ -22,11 +22,10 @@
 <br/>
 
 <div align="center">
-  <a href="https://github.com/Anionex/TaskFlow/blob/main/frontend/public/taskflow-promo.mp4">
-    <img src="frontend/public/taskflow-promo-poster.jpg" alt="TaskFlow 宣传片封面，点击观看 30 秒演示视频" width="720" />
-  </a>
-  <br/>
-  <sub>👆 点击封面观看 30 秒演示视频</sub>
+
+https://github.com/user-attachments/assets/d15ffa3b-80f5-4703-a25a-a5e2170862c3
+
+<sub>30 秒看懂 TaskFlow</sub>
 </div>
 
 <br/>
