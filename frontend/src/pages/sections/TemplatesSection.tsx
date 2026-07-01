@@ -80,19 +80,25 @@ export function TemplatesSection() {
 
   function openEdit(t: Template) {
     setEditing(t)
-    setDraft({ ...t })
+    // 旧数据的 generate_day 可能越界(如 monthly 存了 0，调度器 today.day()==0 永不触发)，
+    // 载入时按频率夹到合法范围。
+    setDraft({ ...t, generate_day: clampDay(t.frequency, t.generate_day) })
     setShowForm(true)
   }
 
   async function handleSave() {
     if (!draft.title?.trim()) return
+    // 提交前归一化 generate_day：按当前频率夹到合法范围。daily 后端忽略，
+    // 但为避免携带越界值(若频率是 monthly/weekly 则非法)，统一夹到 1-31 内的安全值。
+    const normDay = dayRange(draft.frequency) ? clampDay(draft.frequency, draft.generate_day) : clampDay('monthly', draft.generate_day)
+    const draftToSave: Partial<Template> = { ...draft, generate_day: normDay }
     if (editing) {
       // 乐观改本地并立即关闭弹窗；请求回来后静默重载校正。
       const id = editing.id
-      const patched = { ...editing, ...draft } as Template
+      const patched = { ...editing, ...draftToSave } as Template
       setTemplates((ts) => ts.map((t) => (t.id === id ? patched : t)))
       setShowForm(false)
-      const res = await templatesApi.update(id, draft)
+      const res = await templatesApi.update(id, draftToSave)
       if (res.success) addToast({ type: 'success', message: '习惯已更新' })
       else addToast({ type: 'error', message: res.message })
       load({ silent: true })
@@ -100,7 +106,7 @@ export function TemplatesSection() {
       // 新建需服务端 id，静默重载（不再顶掉整个列表）。
       setSaving(true)
       try {
-        const res = await templatesApi.create(draft)
+        const res = await templatesApi.create(draftToSave)
         if (res.success) {
           addToast({ type: 'success', message: '习惯已创建' })
           setShowForm(false)
@@ -157,19 +163,27 @@ export function TemplatesSection() {
     setDraft((d) => ({ ...d, [k]: v }))
   }
 
-  // generate_day 的取值范围随频率而变：weekly 0-6(0=周日)，monthly 1-31，daily 忽略。
-  function dayRange(freq?: Frequency): { min: number; max: number } {
+  // generate_day 的取值范围随频率而变：weekly 0-6(0=周日)，monthly 1-31。
+  // daily 后端忽略 generate_day，返回 null 表示"不夹取"，保留原值以便切回 weekly/monthly 不丢。
+  function dayRange(freq?: Frequency): { min: number; max: number } | null {
     if (freq === 'weekly') return { min: 0, max: 6 }
-    return { min: 1, max: 31 } // monthly
+    if (freq === 'monthly') return { min: 1, max: 31 }
+    return null // daily：不适用
   }
 
-  // 切换频率时把 generate_day 夹到新范围，防止提交过期的越界值。
+  // 把 generate_day 夹到某频率的合法范围；daily 不适用则原样返回。
+  function clampDay(freq: Frequency | undefined, day: number | undefined): number {
+    const r = dayRange(freq)
+    if (!r) return day ?? 0
+    return Math.min(r.max, Math.max(r.min, day ?? r.min))
+  }
+
+  // 切换频率时把 generate_day 夹到新范围，防止提交过期的越界值；daily 不夹取，保留原值。
   function setFrequency(freq: Frequency) {
-    const { min, max } = dayRange(freq)
     setDraft((d) => ({
       ...d,
       frequency: freq,
-      generate_day: Math.min(max, Math.max(min, d.generate_day ?? min)),
+      generate_day: clampDay(freq, d.generate_day),
     }))
   }
 
@@ -280,13 +294,10 @@ export function TemplatesSection() {
             ) : (
               <input
                 type="number"
-                min={dayRange(draft.frequency).min}
-                max={dayRange(draft.frequency).max}
-                value={draft.generate_day ?? dayRange(draft.frequency).min}
-                onChange={(e) => {
-                  const { min, max } = dayRange(draft.frequency)
-                  set('generate_day', Math.min(max, Math.max(min, Number(e.target.value))))
-                }}
+                min={dayRange(draft.frequency)?.min}
+                max={dayRange(draft.frequency)?.max}
+                value={draft.generate_day ?? dayRange(draft.frequency)?.min ?? 0}
+                onChange={(e) => set('generate_day', clampDay(draft.frequency, Number(e.target.value)))}
                 style={inputStyle}
                 onFocus={focusIn}
                 onBlur={focusOut}
