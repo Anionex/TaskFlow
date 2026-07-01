@@ -2,7 +2,7 @@ import { ReactNode, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Sun, Leaf, Moon, LogOut, ChevronRight, Menu, X,
-  LayoutDashboard, CheckSquare, Layers, BarChart2, Trash2, Settings, Sparkles
+  CalendarDays, CheckSquare, Repeat, BarChart2, Trash2, Settings, Bot
 } from 'lucide-react'
 import { useAppStore } from '@/store'
 import { authApi } from '@/api/auth'
@@ -18,10 +18,10 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
-  { id: 'today',     label: '今日',   icon: <LayoutDashboard size={15} aria-hidden /> },
+  { id: 'today',     label: '今日',   icon: <CalendarDays size={15} aria-hidden /> },
   { id: 'tasks',     label: '任务',   icon: <CheckSquare size={15} aria-hidden /> },
-  { id: 'agent',     label: '助理',   icon: <Sparkles size={15} aria-hidden /> },
-  { id: 'templates', label: '习惯',   icon: <Layers size={15} aria-hidden /> },
+  { id: 'agent',     label: '助理',   icon: <Bot size={15} aria-hidden /> },
+  { id: 'templates', label: '习惯',   icon: <Repeat size={15} aria-hidden /> },
   { id: 'stats',     label: '统计',   icon: <BarChart2 size={15} aria-hidden /> },
   { id: 'recycle',   label: '回收站', icon: <Trash2 size={15} aria-hidden /> },
   { id: 'settings',  label: '设置',   icon: <Settings size={15} aria-hidden /> },
