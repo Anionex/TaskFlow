@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { StarRating } from '@/components/ui/StarRating'
 import { Spinner } from '@/components/ui/Spinner'
+import { SkeletonRows, LoadingSwap } from '@/components/ui/Skeleton'
 import { Modal, ModalFooter } from '@/components/ui/Modal'
 import { confirm } from '@/components/ui/ConfirmDialog'
 import { PageContainer } from '@/components/layout/PageContainer'
@@ -786,7 +787,7 @@ export function TasksSection() {
       <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
         <input
           type="text"
-          placeholder={searchMode === 'semantic' ? '用自然语言描述你想找的任务…' : '搜索任务…'}
+          placeholder={searchMode === 'semantic' ? '用自然语言描述你想找的任务…' : '搜索或创建任务…'}
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
           onKeyDown={handleSearchKey}
@@ -840,23 +841,6 @@ export function TasksSection() {
         </select>
       </div>
 
-      {/* 多选模式开关：默认点击行进入编辑，需显式进入多选才做批量选择 */}
-      <div style={{ display: 'flex', marginBottom: '12px' }}>
-        <button
-          onClick={toggleSelectMode}
-          style={{
-            display: 'flex', alignItems: 'center', gap: '5px',
-            background: selectMode ? 'var(--accent)' : 'none',
-            border: `1px solid ${selectMode ? 'var(--accent)' : 'var(--border-strong)'}`,
-            borderRadius: 'var(--radius-pill)', padding: '5px 14px',
-            fontSize: 'var(--text-sm)',
-            color: selectMode ? 'var(--on-accent)' : 'var(--text-muted)',
-            cursor: 'pointer', fontFamily: 'var(--font-sans)',
-          }}
-        >
-          {selectMode ? <><X size={13} aria-hidden /> 完成</> : <><CheckSquare size={13} aria-hidden /> 多选</>}
-        </button>
-      </div>
 
       {/* Batch toolbar：进入多选模式即显示，便于批量操作 */}
       {selectMode && (
@@ -872,8 +856,8 @@ export function TasksSection() {
             disabled={batchDeleting || selected.size === 0}
             style={{
               display: 'flex', alignItems: 'center', gap: '4px',
-              background: 'none', border: '1px solid var(--danger)',
-              borderRadius: 'var(--radius-pill)', padding: '4px 12px',
+              marginLeft: '8px',
+              background: 'none', 
               fontSize: 'var(--text-sm)', color: 'var(--danger)',
               cursor: selected.size === 0 ? 'not-allowed' : 'pointer',
               opacity: selected.size === 0 ? 0.6 : 1,
@@ -889,7 +873,7 @@ export function TasksSection() {
               style={{
                 background: 'none', border: '1px solid var(--border)',
                 borderRadius: 'var(--radius-pill)', padding: '4px 12px',
-                fontSize: 'var(--text-sm)', color: 'var(--text-muted)',
+                fontSize: 'var(--text-sm)', color: 'var(--danger)',
                 cursor: 'pointer', fontFamily: 'var(--font-sans)',
               }}
             >
@@ -906,16 +890,31 @@ export function TasksSection() {
       )}
 
       {/* Total count */}
-      <div style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: '12px' }}>
-        共 {semanticActive ? displayTasks.length : total} 项
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: '12px' }}>
+        <span>共 {semanticActive ? displayTasks.length : total} 项</span>
         {selectMode && selected.size === 0 && displayTasks.length > 0 && (
           <button
             onClick={() => setSelected(new Set(displayTasks.map((t) => t.id)))}
-            style={{ marginLeft: '12px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent)', fontSize: 'var(--text-xs)', fontFamily: 'var(--font-sans)' }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent)', fontSize: 'var(--text-xs)', fontFamily: 'var(--font-sans)' }}
           >
             全选当前页
           </button>
         )}
+
+        {/* 多选模式开关：默认点击行进入编辑，需显式进入多选才做批量选择 */}
+        <button
+          onClick={toggleSelectMode}
+          style={{
+            display: 'flex', alignItems: 'center', gap: '4px',
+            marginLeft: 'auto',
+            background: 'none', border: 'none', padding: '2px 2px',
+            fontSize: 'var(--text-xs)',
+            color: selectMode ? 'var(--accent)' : 'var(--text-muted)',
+            cursor: 'pointer', fontFamily: 'var(--font-sans)',
+          }}
+        >
+          {selectMode ? <><X size={12} aria-hidden /> 退出多选</> : <><CheckSquare size={12} aria-hidden /> 多选</>}
+        </button>
       </div>
 
       {/* Semantic explanation (voice-note style) */}
@@ -926,11 +925,8 @@ export function TasksSection() {
       )}
 
       {/* Task list */}
-      {listLoading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '48px' }}>
-          <Spinner size={20} />
-        </div>
-      ) : displayTasks.length === 0 ? (
+      <LoadingSwap loading={listLoading} skeleton={<SkeletonRows count={6} leading padding="10px 4px" />}>
+        {displayTasks.length === 0 ? (
         <div style={{ padding: '40px 0' }}>
           <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-base)', color: 'var(--text-muted)', textAlign: 'center', margin: 0 }}>
             {semanticActive
@@ -966,6 +962,7 @@ export function TasksSection() {
           )}
         </div>
       )}
+      </LoadingSwap>
 
       {/* Pagination (not applicable to semantic results) */}
       {!semanticActive && totalPages > 1 && (
