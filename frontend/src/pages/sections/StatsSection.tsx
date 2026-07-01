@@ -62,10 +62,16 @@ export function StatsSection() {
     const borderColor = cssVar('--border', 'rgba(24,24,16,.10)')
     const accentColor = cssVar('--accent', '#4742B8')
     const hasPieData = s.completed + s.pending + s.expired > 0
+    const hasBarData = !!s.monthly_completed?.length
+
+    // 先无条件销毁旧实例，避免主题切换/数据从有到无时泄漏或 "Canvas is already in use"。
+    pieChart.current?.destroy()
+    pieChart.current = null
+    barChart.current?.destroy()
+    barChart.current = null
 
     // Pie chart
     if (pieRef.current && hasPieData) {
-      pieChart.current?.destroy()
       const ctx = pieRef.current.getContext('2d')!
       pieChart.current = new C(ctx, {
         type: 'doughnut',
@@ -105,8 +111,7 @@ export function StatsSection() {
     }
 
     // Bar chart
-    if (barRef.current && s.monthly_completed?.length) {
-      barChart.current?.destroy()
+    if (barRef.current && hasBarData) {
       const ctx = barRef.current.getContext('2d')!
       barChart.current = new C(ctx, {
         type: 'bar',
@@ -150,7 +155,8 @@ export function StatsSection() {
   if (loading) return <div style={{ display: 'flex', justifyContent: 'center', padding: '80px' }}><Spinner size={24} /></div>
   if (!stats) return null
 
-  const hasPieData = stats.total > 0
+  // 挂载闸与绘制闸用同一条件，避免挂了空 canvas。
+  const hasPieData = stats.completed + stats.pending + stats.expired > 0
 
   return (
     <PageContainer>
