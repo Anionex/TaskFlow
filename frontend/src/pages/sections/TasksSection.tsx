@@ -75,6 +75,8 @@ function ProgressMeter({ done, total }: { done: number; total: number }) {
 export function TasksSection() {
   const { addToast } = useAppStore()
   const [tab, setTab] = useState<StatusTab>('pending')
+  // 当前状态标签（待办/已完成/已过期），供清空确认与按钮文案复用。
+  const statusLabel = STATUS_TABS.find((t) => t.id === tab)!.label
   const [category, setCategory] = useState<Category | ''>('')
   const [sortBy, setSortBy] = useState<SortBy>('created')
   const [search, setSearch] = useState('')
@@ -213,7 +215,8 @@ export function TasksSection() {
   }
 
   async function deleteTask(id: string) {
-    // 乐观移除该行；失败则静默重载恢复真实列表。
+    // 乐观移除该行；失败则回滚快照（loadTasks 无法恢复 semanticResults，语义模式下会丢行）。
+    const snapshot = { tasks, semanticResults, total }
     patchLists((l) => l.filter((t) => t.id !== id))
     setTotal((n) => Math.max(0, n - 1))
     const res = await tasksApi.delete(id)
@@ -221,7 +224,9 @@ export function TasksSection() {
       addToast({ type: 'success', message: '已移至回收站' })
     } else {
       addToast({ type: 'error', message: '删除失败' })
-      loadTasks({ silent: true })
+      setTasks(snapshot.tasks)
+      setSemanticResults(snapshot.semanticResults)
+      setTotal(snapshot.total)
     }
   }
 
@@ -229,6 +234,8 @@ export function TasksSection() {
     if (selected.size === 0) return
     const ids = Array.from(selected)
     setBatchDeleting(true)
+    // 失败回滚快照（保留 semanticResults，避免语义模式丢行）。
+    const snapshot = { tasks, semanticResults, total }
     patchLists((l) => l.filter((t) => !selected.has(t.id)))
     setTotal((n) => Math.max(0, n - ids.length))
     setSelected(new Set())
@@ -238,7 +245,9 @@ export function TasksSection() {
         addToast({ type: 'success', message: `已删除 ${ids.length} 个任务` })
       } else {
         addToast({ type: 'error', message: '删除失败' })
-        loadTasks({ silent: true })
+        setTasks(snapshot.tasks)
+        setSemanticResults(snapshot.semanticResults)
+        setTotal(snapshot.total)
       }
     } finally {
       setBatchDeleting(false)
@@ -246,7 +255,10 @@ export function TasksSection() {
   }
 
   async function handleClearStatus() {
-    if (!window.confirm(`确认清空所有"${tab === 'completed' ? '已完成' : tab === 'expired' ? '已过期' : '待办'}"任务？`)) return
+    // 明确提示：清空的是当前「状态」下的全部任务，而非选中项。
+    if (!window.confirm(`确认清空「${statusLabel}」下的全部任务？此操作不可撤销`)) return
+    // 失败回滚快照（保留 semanticResults 口径一致，虽本操作仅精确模式可用）。
+    const snapshot = { tasks, semanticResults, total }
     patchLists(() => [])
     setTotal(0)
     setSelected(new Set())
@@ -255,7 +267,9 @@ export function TasksSection() {
       addToast({ type: 'success', message: '已清空' })
     } else {
       addToast({ type: 'error', message: '清空失败' })
-      loadTasks({ silent: true })
+      setTasks(snapshot.tasks)
+      setSemanticResults(snapshot.semanticResults)
+      setTotal(snapshot.total)
     }
   }
 
@@ -291,6 +305,9 @@ export function TasksSection() {
       description: task.description,
       category: task.category,
       star_rating: task.star_rating,
+      // 日期按 UTC 截取 ISO 前 10 位回显：create 发送的纯日期由后端按 UTC 零点存储
+      // （见 util.rs DateOnlyTz::Utc），这里必须用同一口径截取才能原样往返；
+      // 若在此做本地时区换算，负偏移用户会显示成前一天。
       start_date: task.start_date?.slice(0, 10) ?? '',
       deadline: task.deadline?.slice(0, 10) ?? '',
     })
@@ -299,7 +316,9 @@ export function TasksSection() {
   async function handleEdit() {
     if (!editTask || !editDraft.title.trim()) return
     const id = editTask.id
-    // 乐观改本地字段并立即关闭弹窗；请求回来后静默重载校正（日期归一化、过期态等派生字段）。
+    // 乐观改本地字段并立即关闭弹窗；失败回滚快照，成功后按显示的列表校正派生字段
+    //（日期归一化、过期态等）。loadTasks 只刷新 tasks，语义模式需重跑检索。
+    const snapshot = { tasks, semanticResults }
     patchLists((l) =>
       l.map((t) =>
         t.id === id
@@ -326,10 +345,13 @@ export function TasksSection() {
     })
     if (res.success) {
       addToast({ type: 'success', message: '已更新' })
+      if (semanticActive && committedQuery.trim()) runSemanticSearch(committedQuery)
+      else loadTasks({ silent: true })
     } else {
       addToast({ type: 'error', message: res.message })
+      setTasks(snapshot.tasks)
+      setSemanticResults(snapshot.semanticResults)
     }
-    loadTasks({ silent: true })
   }
 
   async function handleRewrite() {
@@ -351,6 +373,8 @@ export function TasksSection() {
     if (!rewriteTask || !rewriteResult) return
     const id = rewriteTask.id
     const newTitle = rewriteResult.suggested_title
+    // 失败回滚快照（保留 semanticResults，避免语义模式丢行）。
+    const snapshot = { tasks, semanticResults }
     patchLists((l) => l.map((t) => (t.id === id ? { ...t, title: newTitle } : t)))
     setRewriteTask(null)
     setRewriteResult(null)
@@ -359,7 +383,8 @@ export function TasksSection() {
       addToast({ type: 'success', message: '标题已更新' })
     } else {
       addToast({ type: 'error', message: res.message || '更新失败' })
-      loadTasks({ silent: true })
+      setTasks(snapshot.tasks)
+      setSemanticResults(snapshot.semanticResults)
     }
   }
 
@@ -724,7 +749,7 @@ export function TasksSection() {
                 cursor: 'pointer', fontFamily: 'var(--font-sans)',
               }}
             >
-              清空当前列表
+              清空全部「{statusLabel}」
             </button>
           )}
           <button
