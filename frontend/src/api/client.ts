@@ -10,14 +10,11 @@ function getBase(): string {
   return (import.meta.env.VITE_API_BASE as string | undefined) || '/api'
 }
 
-// 会话过期(401)时清掉本地会话并跳登录页，避免用户被卡死。
-// 防抖：短时间内多个请求同时 401 只跳一次。
-let redirecting = false
+// 会话过期(401)时清掉本地会话。路由的 RequireAuth 订阅了 store.sessionId，
+// sessionId 变 null 会自动重渲染并跳登录页——用 React Router 处理，不做硬跳转，
+// 兼容 Web 与 Tauri(tauri://localhost)，也不清空内存状态。clearSession 幂等，无需防抖标志。
 function handleExpiredSession() {
-  if (redirecting) return
-  redirecting = true
   useAppStore.getState().clearSession()
-  if (window.location.pathname !== '/login') window.location.assign('/login')
 }
 
 // 兜底解析：响应非 JSON(500 HTML / 413 / body 解析失败)时返回合成错误而非抛出，
