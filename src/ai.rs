@@ -23,12 +23,39 @@ pub(crate) struct LlmConfig {
 const DEEPSEEK_BASE: &str = "https://api.deepseek.com";
 const DEEPSEEK_MODEL: &str = "deepseek-chat";
 
-/// 简单的 base_url 安全校验（SSRF 兜底）：只接受 http/https 且 host 非空。
-/// 不做 DNS 解析，仅做形态检查，挡掉 file://、gopher://、以及空 host 之类的畸形值。
+/// base_url 安全校验（SSRF 兜底）：接受 http/https 且 host 非空，
+/// 拒绝字面量**链路本地**（IPv4 169.254.0.0/16、IPv6 fe80::/10，含云元数据端点
+/// 169.254.169.254）与**未指定**地址（0.0.0.0 / ::）——这是价值最高的 SSRF 目标。
+/// 有意**放行** localhost / 环回 / 私网 LAN：自带 key 的自托管用户可把 base_url 指向
+/// 本地或内网自建的 OpenAI 兼容服务（如 Ollama / LM Studio / LAN 网关），这是正当用法，
+/// 且该路径用的是用户自己的 key、错误信息也不回显，风险很低。
+/// 注意：仅字面量 IP 拦截，不做 DNS 解析，无法防御 DNS-rebinding，不在本函数范围内。
 fn is_safe_base_url(url: &str) -> bool {
-    match reqwest::Url::parse(url) {
-        Ok(u) => matches!(u.scheme(), "http" | "https") && u.host_str().is_some_and(|h| !h.is_empty()),
-        Err(_) => false,
+    use std::net::IpAddr;
+
+    let u = match reqwest::Url::parse(url) {
+        Ok(u) => u,
+        Err(_) => return false,
+    };
+    if !matches!(u.scheme(), "http" | "https") {
+        return false;
+    }
+    let host = match u.host_str() {
+        Some(h) if !h.is_empty() => h,
+        _ => return false,
+    };
+    // 字面量 IP：仅拒绝链路本地/未指定；环回与私网 LAN 放行（自建 LLM）。
+    // host_str() 对 IPv6 会带方括号（如 "[::1]"），先剥掉再解析。
+    let ip_str = host.strip_prefix('[').and_then(|s| s.strip_suffix(']')).unwrap_or(host);
+    match ip_str.parse::<IpAddr>() {
+        Ok(IpAddr::V4(ip)) => !(ip.is_link_local() || ip.is_unspecified()),
+        Ok(IpAddr::V6(ip)) => {
+            let seg0 = ip.segments()[0];
+            let is_link_local = (seg0 & 0xffc0) == 0xfe80; // fe80::/10
+            !(ip.is_unspecified() || is_link_local)
+        }
+        // 非字面量 IP（普通域名）→ 通过形态校验。
+        Err(_) => true,
     }
 }
 
@@ -824,12 +851,23 @@ mod tests {
 
     #[test]
     fn is_safe_base_url_rejects_bad_schemes_and_empty_host() {
+        // 公网域名仍然放行。
         assert!(super::is_safe_base_url("https://api.deepseek.com"));
-        assert!(super::is_safe_base_url("http://localhost:8080/v1"));
+        // 畸形 scheme / 空 host。
         assert!(!super::is_safe_base_url("file:///etc/passwd"));
         assert!(!super::is_safe_base_url("ftp://example.com"));
         assert!(!super::is_safe_base_url("not-a-url"));
         assert!(!super::is_safe_base_url(""));
+        // SSRF：链路本地/元数据与未指定地址拒绝。
+        assert!(!super::is_safe_base_url("http://169.254.169.254"));
+        assert!(!super::is_safe_base_url("http://0.0.0.0"));
+        assert!(!super::is_safe_base_url("http://[fe80::1]"));
+        assert!(!super::is_safe_base_url("http://[::]"));
+        // 有意放行：localhost / 环回 / 私网 LAN（自建 LLM 的正当用法）。
+        assert!(super::is_safe_base_url("http://localhost:8080/v1"));
+        assert!(super::is_safe_base_url("http://127.0.0.1"));
+        assert!(super::is_safe_base_url("http://[::1]"));
+        assert!(super::is_safe_base_url("http://192.168.1.10:11434/v1"));
     }
 
     #[test]
