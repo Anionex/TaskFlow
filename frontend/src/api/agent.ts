@@ -55,16 +55,20 @@ function dispatch(event: string, dataRaw: string, h: StreamHandlers) {
 }
 
 export const agentApi = {
-  /** 流式对话：读 SSE，逐事件回调。messages 为前端持有的不透明历史。 */
-  async chatStream(payload: AgentPayload, h: StreamHandlers): Promise<void> {
+  /** 流式对话：读 SSE，逐事件回调。messages 为前端持有的不透明历史。
+   *  传入 signal 可在组件卸载/重开新流时中止连接（中止不算错误，不回调 onError）。 */
+  async chatStream(payload: AgentPayload, h: StreamHandlers, signal?: AbortSignal): Promise<void> {
     let res: Response
     try {
       res = await fetch(`${getBase()}/ai/agent`, {
         method: 'POST',
         headers: buildHeaders(),
         body: JSON.stringify(payload),
+        signal,
       })
     } catch {
+      // 主动中止不算错误
+      if (signal?.aborted) return
       h.onError?.('网络错误，请稍后再试')
       return
     }
@@ -76,23 +80,32 @@ export const agentApi = {
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
     let buf = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      // SSE 帧以空行分隔
-      let idx: number
-      while ((idx = buf.indexOf('\n\n')) >= 0) {
-        const frame = buf.slice(0, idx)
-        buf = buf.slice(idx + 2)
-        let event = ''
-        let data = ''
-        for (const line of frame.split('\n')) {
-          if (line.startsWith('event:')) event = line.slice(6).trim()
-          else if (line.startsWith('data:')) data += line.slice(5).trim()
+    try {
+      for (;;) {
+        if (signal?.aborted) break
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        // SSE 帧以空行分隔
+        let idx: number
+        while ((idx = buf.indexOf('\n\n')) >= 0) {
+          const frame = buf.slice(0, idx)
+          buf = buf.slice(idx + 2)
+          let event = ''
+          let data = ''
+          for (const line of frame.split('\n')) {
+            if (line.startsWith('event:')) event = line.slice(6).trim()
+            else if (line.startsWith('data:')) data += line.slice(5).trim()
+          }
+          if (event) dispatch(event, data, h)
         }
-        if (event) dispatch(event, data, h)
       }
+    } catch {
+      // reader.read() 在中止时会抛 AbortError：主动中止时静默返回，其它错误上报
+      if (!signal?.aborted) h.onError?.('连接中断，请稍后再试')
+    } finally {
+      // 无论正常结束还是中止都释放底层连接
+      void reader.cancel().catch(() => {})
     }
   },
 }

@@ -50,11 +50,26 @@ export function AgentSection() {
   const taRef = useRef<HTMLTextAreaElement>(null)
   // 同步的在途标记：busy 是异步 state，单靠它无法挡住同一帧内的两次触发（双击/回车+点击）。
   const inFlightRef = useRef(false)
+  // 当前在途流的中止控制器；组件卸载或重开新流时用它断开连接。
+  const abortRef = useRef<AbortController | null>(null)
+  // 组件是否仍挂载：中止/卸载后的异步回调据此跳过 setState。
+  const mountedRef = useRef(true)
 
-  // 新内容到达时滚到底部（含流式增量）
+  // 卸载时中止在途流并置卸载标记，避免连接泄漏与卸载后 setState
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false
+      abortRef.current?.abort()
+    }
+  }, [])
+
+  // 新内容到达时滚到底部（含流式增量）；仅当用户本就贴着底部时才跟随，
+  // 否则用户向上翻看时不被每个 token 拽回底部。
   useEffect(() => {
     const el = scrollRef.current
-    if (el) el.scrollTop = el.scrollHeight
+    if (!el) return
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    if (nearBottom) el.scrollTop = el.scrollHeight
   }, [transcript, pending, busy, liveText, liveSteps])
 
   // 输入框自适应高度
@@ -83,26 +98,38 @@ export function AgentSection() {
 
   // 调用方负责同步置位 inFlightRef 后再进入；这里在结束时复位。
   const runChat = useCallback(
-    async (payload: Payload) => {
+    // retryText 仅在 send() 路径传入：出错时用它回滚 transcript 用户气泡并还原输入
+    async (payload: Payload, retryText?: string) => {
+      // 开新流前先中止上一条在途流，避免连接泄漏与回调串扰
+      abortRef.current?.abort()
+      const controller = new AbortController()
+      abortRef.current = controller
+      // 本流是否仍是当前流：被更新的流替换后，其迟到的回调不应再写 state
+      const alive = () => mountedRef.current && abortRef.current === controller
+
       setBusy(true)
       resetLive()
       let terminal = false
 
       await agentApi.chatStream(payload, {
         onStart: () => {
+          if (!alive()) return
           // 新的模型段：清掉上一段的旁白（工具旁白已在 onTool 折叠）
           liveTextRef.current = ''
           liveThinkingRef.current = ''
           setLiveText('')
         },
         onDelta: (t) => {
+          if (!alive()) return
           liveTextRef.current += t
           setLiveText(liveTextRef.current)
         },
         onThinking: (t) => {
+          if (!alive()) return
           liveThinkingRef.current += t
         },
         onTool: (step) => {
+          if (!alive()) return
           flushThinking()
           // 工具调用前若模型有旁白文字，折进思考轨迹
           if (liveTextRef.current.trim()) {
@@ -114,6 +141,7 @@ export function AgentSection() {
           setLiveSteps(liveStepsRef.current)
         },
         onDone: (d) => {
+          if (!alive()) return
           terminal = true
           flushThinking()
           const steps = liveStepsRef.current
@@ -129,11 +157,28 @@ export function AgentSection() {
           resetLive()
         },
         onError: (m) => {
+          if (!alive()) return
           terminal = true
           addToast({ type: 'error', message: m })
+          // 本轮服务端未提交任何 assistant/tool 结果：messages 未更新，但 send() 已把
+          // 用户气泡推进 transcript。若不回滚，下一轮会用缺了这一条的旧 messages 重发，
+          // transcript 与后端上下文就此错位。这里回滚该用户气泡并还原输入，方便重试。
+          // （accept/reject 不加用户气泡、且失败前 messages 未变，无需回滚。）
+          if (retryText !== undefined) {
+            setTranscript((prev) => {
+              const n = [...prev]
+              const last = n[n.length - 1]
+              if (last && last.type === 'user' && last.text === retryText) n.pop()
+              return n
+            })
+            setInput(retryText)
+          }
           resetLive()
         },
-      })
+      }, controller.signal)
+
+      // 被更新的流替换或已卸载：不再触碰任何 state / 在途标记
+      if (!alive()) return
 
       // 流意外中断（既无 done 也无 error）：尽量留存已到内容，避免凭空消失
       if (!terminal) {
@@ -163,7 +208,7 @@ export function AgentSection() {
     inFlightRef.current = true
     setTranscript((prev) => [...prev, { type: 'user', text: t }])
     setInput('')
-    void runChat({ messages, user_input: t })
+    void runChat({ messages, user_input: t }, t)
   }
 
   function accept() {
