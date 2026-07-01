@@ -14,6 +14,7 @@ taskflow.log
 .env.*
 .vscode/
 .idea/
+.claude/
 
 *.exe
 *.dmg
