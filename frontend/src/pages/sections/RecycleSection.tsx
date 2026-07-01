@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { RotateCcw, Trash2 } from 'lucide-react'
+import { confirm } from '@/components/ui/ConfirmDialog'
 import { Spinner } from '@/components/ui/Spinner'
 import { PageContainer } from '@/components/layout/PageContainer'
 import { recycleApi } from '@/api/recycle'
@@ -36,7 +37,7 @@ export function RecycleSection() {
   }
 
   async function deletePermanent(id: string) {
-    if (!window.confirm('永久删除后无法找回，确认？')) return
+    if (!(await confirm({ title: '永久删除', message: '永久删除后无法找回，确认？', danger: true, confirmText: '永久删除' }))) return
     setTasks((ts) => ts.filter((t) => t.id !== id))
     const res = await recycleApi.deletePermanent(id)
     if (res.success) {
@@ -48,7 +49,7 @@ export function RecycleSection() {
   }
 
   async function clearAll() {
-    if (!window.confirm('清空回收站后无法找回，确认？')) return
+    if (!(await confirm({ title: '清空回收站', message: '清空回收站后无法找回，确认？', danger: true, confirmText: '清空' }))) return
     setTasks([])
     const res = await recycleApi.clearAll()
     if (res.success) {

@@ -7,6 +7,7 @@ import { TemplatesSection } from './sections/TemplatesSection'
 import { StatsSection } from './sections/StatsSection'
 import { RecycleSection } from './sections/RecycleSection'
 import { SettingsSection } from './sections/SettingsSection'
+import { ConfirmHost } from '@/components/ui/ConfirmDialog'
 
 export function AppPage() {
   const [section, setSection] = useState<SectionId>('today')
@@ -24,8 +25,11 @@ export function AppPage() {
   }
 
   return (
-    <AppShell active={section} onNavigate={setSection}>
-      {renderSection()}
-    </AppShell>
+    <>
+      <AppShell active={section} onNavigate={setSection}>
+        {renderSection()}
+      </AppShell>
+      <ConfirmHost />
+    </>
   )
 }
