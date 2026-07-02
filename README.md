@@ -15,7 +15,7 @@
 ![Tauri](https://img.shields.io/badge/desktop-Tauri%20v2-24c8db?logo=tauri&logoColor=white)
 ![Supabase](https://img.shields.io/badge/database-Supabase%20%2F%20PostgreSQL-3ecf8e?logo=supabase&logoColor=white)
 
-[在线体验](https://taskflowai.asia) · [下载桌面版](../../releases) · [功能文档](docs/总结文档.md) · [反馈问题](../../issues)
+[在线体验](https://taskflowai.asia) · [下载桌面版](../../releases) · [反馈问题](../../issues)
 
 </div>
 
