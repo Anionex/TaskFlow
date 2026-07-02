@@ -3,7 +3,7 @@ import { Download, ArrowLeft, Info } from 'lucide-react'
 import { Logo } from '@/components/ui/Logo'
 
 /** 桌面客户端版本与产物（与 desktop-release workflow 的产物名保持一致）。 */
-const VERSION = '2.0.2'
+const VERSION = '2.0.3'
 const PLATFORMS = [
   {
     os: 'macOS',
