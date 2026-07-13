@@ -77,6 +77,10 @@ pub fn build_app(pool: sqlx::PgPool, config: TestConfig) -> Router {
             put(tasks::update_task).delete(tasks::delete_task),
         )
         .route("/api/tasks/{id}/toggle", post(tasks::toggle_task))
+        // ── 分类管理（Issue #9：自定义分类）
+        .route("/api/categories", get(tasks::list_categories))
+        .route("/api/categories/rename", post(tasks::rename_category))
+        .route("/api/categories/delete", post(tasks::delete_category))
         // ── 回收站
         .route(
             "/api/recycle",

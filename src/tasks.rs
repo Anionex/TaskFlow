@@ -116,9 +116,15 @@ pub struct CreateGroupReq {
 
 // ── 校验辅助（纯函数，供单元测试） ────────────────────────────────────────────
 
+/// 分类校验：自由文本，只要非空且长度 ≤10 字符即可（对齐 DB 的 VARCHAR(10)）。
+/// 用户可创建自己的分类（Issue #9），不再限定为固定 5 类；默认 5 类只是前端下拉的预置项。
 pub fn is_valid_category(category: &str) -> bool {
-    ["学习", "工作", "生活", "家庭", "其他"].contains(&category)
+    let c = category.trim();
+    !c.is_empty() && c.chars().count() <= 10
 }
+
+/// 默认分类（前端下拉预置；后端不强制，仅用于兜底取值）。
+pub const DEFAULT_CATEGORIES: [&str; 5] = ["学习", "工作", "生活", "家庭", "其他"];
 
 /// 任务状态过滤的 SQL 片段（以 " AND ..." 开头，可直接拼到 WHERE 之后）。
 /// `prefix` 是列前缀，如 "t." 或 ""（按 FROM 是否带别名）。
@@ -154,19 +160,29 @@ fn clamp_per_page(per_page: Option<i64>) -> i64 {
 mod tests {
     use super::*;
 
-    // ── 分类校验 ─────────────────────────────────────────────────────────
+    // ── 分类校验（自由文本，Issue #9）─────────────────────────────────────
     #[test]
-    fn valid_categories_accepted() {
-        for cat in ["学习", "工作", "生活", "家庭", "其他"] {
+    fn default_categories_accepted() {
+        for cat in DEFAULT_CATEGORIES {
             assert!(is_valid_category(cat), "expected valid: {cat}");
         }
     }
 
     #[test]
+    fn custom_categories_accepted() {
+        // 自定义分类允许：非空、≤10 字符。
+        assert!(is_valid_category("娱乐"));
+        assert!(is_valid_category("study"));
+        assert!(is_valid_category("副业赚钱")); // 4 个汉字
+        assert!(is_valid_category("十个字十个字十个字十")); // 恰好 10 字
+    }
+
+    #[test]
     fn invalid_category_rejected() {
         assert!(!is_valid_category(""));
-        assert!(!is_valid_category("娱乐"));
-        assert!(!is_valid_category("study"));
+        assert!(!is_valid_category("   ")); // 纯空白
+        assert!(!is_valid_category("十个字十个字十个字十一")); // 11 字，超出 VARCHAR(10)
+        assert!(!is_valid_category("abcdefghijk")); // 11 个 ASCII
     }
 
     // ── 星级范围 ─────────────────────────────────────────────────────────
@@ -397,10 +413,11 @@ pub async fn create_task(
         return (StatusCode::BAD_REQUEST, err("任务标题不能为空"));
     }
 
-    // Validate category
-    let category = body.category.as_deref().unwrap_or("其他");
-    if !["学习", "工作", "生活", "家庭", "其他"].contains(&category) {
-        return (StatusCode::BAD_REQUEST, err("分类无效"));
+    // Validate category（自由文本，非空且 ≤10 字符；见 is_valid_category）
+    let category = body.category.as_deref().unwrap_or("其他").trim();
+    let category = if category.is_empty() { "其他" } else { category };
+    if !is_valid_category(category) {
+        return (StatusCode::BAD_REQUEST, err("分类无效（不能超过 10 个字）"));
     }
 
     // 仅一级约束 + 父任务归属校验：parent_id 必须是当前用户名下、且自身无父的任务
@@ -481,8 +498,9 @@ pub async fn update_task(
         task.description = desc;
     }
     if let Some(cat) = body.category {
-        if ["学习", "工作", "生活", "家庭", "其他"].contains(&cat.as_str()) {
-            task.category = cat;
+        let cat = cat.trim();
+        if is_valid_category(cat) {
+            task.category = cat.to_string();
         }
     }
     if let Some(sr) = body.star_rating {
@@ -781,4 +799,112 @@ pub async fn create_group(
         StatusCode::CREATED,
         ok("已创建任务组", json!({"parent_id": parent.id})),
     )
+}
+
+// ── 分类管理（Issue #9：自定义分类）─────────────────────────────────────────
+// 轻量方案：分类为任务上的自由文本，不建独立表。「已有分类」由用户任务去重得到，
+// 前端下拉 = 默认 5 类 ∪ 这里返回的已用分类。重命名/删除即对任务做批量改写。
+
+#[derive(Deserialize)]
+pub struct RenameCategoryReq {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Deserialize)]
+pub struct DeleteCategoryReq {
+    pub name: String,
+}
+
+/// 列出该用户当前在用的全部分类（含回收站外的任务，去重、按字母序）。
+pub async fn list_categories(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+) -> (StatusCode, Json<ApiResponse>) {
+    let uid = match current_user(&headers, &state).await {
+        Ok(u) => u,
+        Err(e) => return e,
+    };
+
+    let cats: Vec<String> = sqlx::query_scalar(
+        "SELECT DISTINCT category FROM tasks \
+         WHERE user_id=$1 AND deleted_at IS NULL AND category <> '' \
+         ORDER BY category ASC",
+    )
+    .bind(uid)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    (StatusCode::OK, ok("获取成功", json!({ "items": cats })))
+}
+
+/// 重命名分类：把该用户名下所有该分类的任务（含子任务、含回收站）批量改写为新名。
+pub async fn rename_category(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    Json(body): Json<RenameCategoryReq>,
+) -> (StatusCode, Json<ApiResponse>) {
+    let uid = match current_user(&headers, &state).await {
+        Ok(u) => u,
+        Err(e) => return e,
+    };
+
+    let from = body.from.trim();
+    let to = body.to.trim();
+    if from.is_empty() {
+        return (StatusCode::BAD_REQUEST, err("原分类不能为空"));
+    }
+    if !is_valid_category(to) {
+        return (StatusCode::BAD_REQUEST, err("新分类无效（不能超过 10 个字）"));
+    }
+
+    let res = sqlx::query("UPDATE tasks SET category=$1 WHERE user_id=$2 AND category=$3")
+        .bind(to)
+        .bind(uid)
+        .bind(from)
+        .execute(&state.db)
+        .await;
+
+    match res {
+        Ok(r) => (StatusCode::OK, ok_msg(&format!("已更新 {} 个任务", r.rows_affected()))),
+        Err(e) => {
+            tracing::error!("rename_category error: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, err("重命名失败"))
+        }
+    }
+}
+
+/// 删除分类：把该用户名下所有该分类的任务重新归入「其他」。不删除任务本身。
+pub async fn delete_category(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    Json(body): Json<DeleteCategoryReq>,
+) -> (StatusCode, Json<ApiResponse>) {
+    let uid = match current_user(&headers, &state).await {
+        Ok(u) => u,
+        Err(e) => return e,
+    };
+
+    let name = body.name.trim();
+    if name.is_empty() {
+        return (StatusCode::BAD_REQUEST, err("分类不能为空"));
+    }
+    if name == "其他" {
+        return (StatusCode::BAD_REQUEST, err("默认分类「其他」不能删除"));
+    }
+
+    let res = sqlx::query("UPDATE tasks SET category='其他' WHERE user_id=$1 AND category=$2")
+        .bind(uid)
+        .bind(name)
+        .execute(&state.db)
+        .await;
+
+    match res {
+        Ok(r) => (StatusCode::OK, ok_msg(&format!("已将 {} 个任务归入「其他」", r.rows_affected()))),
+        Err(e) => {
+            tracing::error!("delete_category error: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, err("删除失败"))
+        }
+    }
 }
