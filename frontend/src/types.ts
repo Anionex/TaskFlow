@@ -1,4 +1,5 @@
-export type Category = '学习' | '工作' | '生活' | '家庭' | '其他'
+// 分类为自由文本（Issue #9：支持自定义分类）。默认 5 类见 lib/categories.ts。
+export type Category = string
 export type SortBy = 'created' | 'deadline' | 'star'
 export type Tone = '温暖鼓励型' | '冷静督促型' | '简短效率型'
 export type Frequency = 'daily' | 'weekly' | 'monthly'
@@ -44,6 +45,8 @@ export interface ParsedTask {
   star_rating: number
   start_date: string | null
   deadline: string | null
+  // Issue #12.4：AI 识别出的重复/习惯类表达，前端据此引导去「习惯」创建而非当一次性任务入库。
+  is_habit?: boolean
   suggestion: string | null
 }
 

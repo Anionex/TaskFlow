@@ -1,11 +1,14 @@
 import { useState, useEffect } from 'react'
-import { Download, Upload, Eye, EyeOff, Info, HelpCircle } from 'lucide-react'
+import { Download, Upload, Eye, EyeOff, Info, HelpCircle, Pencil, Trash2, Check, X } from 'lucide-react'
 import { Spinner } from '@/components/ui/Spinner'
 import { Modal } from '@/components/ui/Modal'
+import { confirm } from '@/components/ui/ConfirmDialog'
 import { PageContainer } from '@/components/layout/PageContainer'
 import { userApi } from '@/api/user'
+import { categoriesApi } from '@/api/tasks'
 import { api } from '@/api/client'
 import { useAppStore } from '@/store'
+import { isDefaultCategory, isValidCategory } from '@/lib/categories'
 import type { Tone } from '@/types'
 
 const TONES: { id: Tone; label: string; desc: string }[] = [
@@ -51,7 +54,13 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 }
 
 export function SettingsSection() {
-  const { addToast, theme, setTheme } = useAppStore()
+  const { addToast, theme, setTheme, categories, refreshCategories } = useAppStore()
+
+  // 分类管理（Issue #9）：自定义分类 = 已用分类去掉默认 5 类。
+  const customCategories = categories.filter((c) => !isDefaultCategory(c))
+  const [renamingCat, setRenamingCat] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [catBusy, setCatBusy] = useState(false)
 
   // Password
   const [oldPwd, setOldPwd] = useState('')
@@ -80,7 +89,49 @@ export function SettingsSection() {
 
   useEffect(() => {
     loadSettings()
-  }, [])
+    refreshCategories()
+  }, [refreshCategories])
+
+  async function handleRenameCategory(from: string) {
+    const to = renameValue.trim()
+    if (!isValidCategory(to)) { addToast({ type: 'error', message: '分类名需 1-10 个字' }); return }
+    if (to === from) { setRenamingCat(null); return }
+    setCatBusy(true)
+    try {
+      const res = await categoriesApi.rename(from, to)
+      if (res.success) {
+        addToast({ type: 'success', message: '分类已重命名' })
+        setRenamingCat(null)
+        await refreshCategories()
+      } else {
+        addToast({ type: 'error', message: res.message || '重命名失败' })
+      }
+    } finally {
+      setCatBusy(false)
+    }
+  }
+
+  async function handleDeleteCategory(name: string) {
+    const ok = await confirm({
+      title: '删除分类',
+      message: `删除「${name}」后，该分类下的任务会归入「其他」（任务不会被删除）。`,
+      danger: true,
+      confirmText: '删除',
+    })
+    if (!ok) return
+    setCatBusy(true)
+    try {
+      const res = await categoriesApi.delete(name)
+      if (res.success) {
+        addToast({ type: 'success', message: '分类已删除' })
+        await refreshCategories()
+      } else {
+        addToast({ type: 'error', message: res.message || '删除失败' })
+      }
+    } finally {
+      setCatBusy(false)
+    }
+  }
 
   async function loadSettings() {
     const res = await userApi.getSettings()
@@ -328,6 +379,59 @@ export function SettingsSection() {
         >
           {toneLoading && <Spinner size={12} />} 保存偏好
         </button>
+      </Section>
+
+      {/* Category management (Issue #9) */}
+      <Section title="分类管理">
+        <p style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginBottom: '14px', lineHeight: 'var(--lh-normal)' }}>
+          默认分类（学习 / 工作 / 生活 / 家庭 / 其他）不可改。新建或编辑任务时输入新的分类名即可创建自定义分类。
+        </p>
+        {customCategories.length === 0 ? (
+          <p style={{ fontSize: 'var(--text-sm)', color: 'var(--text-muted)', fontFamily: 'var(--font-voice)' }}>
+            还没有自定义分类。
+          </p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            {customCategories.map((c) => (
+              <div key={c} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+                {renamingCat === c ? (
+                  <>
+                    <input
+                      type="text"
+                      autoFocus
+                      value={renameValue}
+                      maxLength={10}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { e.preventDefault(); handleRenameCategory(c) }
+                        if (e.key === 'Escape') setRenamingCat(null)
+                      }}
+                      style={{ ...inputStyle, flex: 1 }}
+                      onFocus={focusIn}
+                      onBlur={focusOut}
+                    />
+                    <button onClick={() => handleRenameCategory(c)} disabled={catBusy} aria-label="确认" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--success)', display: 'flex', padding: '3px' }}>
+                      {catBusy ? <Spinner size={13} /> : <Check size={15} />}
+                    </button>
+                    <button onClick={() => setRenamingCat(null)} aria-label="取消" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: '3px' }}>
+                      <X size={15} />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span style={{ flex: 1, fontSize: 'var(--text-sm)', color: 'var(--text-primary)' }}>{c}</span>
+                    <button onClick={() => { setRenamingCat(c); setRenameValue(c) }} disabled={catBusy} aria-label="重命名" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: '3px' }}>
+                      <Pencil size={13} />
+                    </button>
+                    <button onClick={() => handleDeleteCategory(c)} disabled={catBusy} aria-label="删除" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: '3px' }}>
+                      <Trash2 size={13} />
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </Section>
 
       {/* Import / Export */}

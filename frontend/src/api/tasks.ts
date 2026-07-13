@@ -36,3 +36,11 @@ export const tasksApi = {
   createGroup: (payload: TaskGroupPayload) =>
     api.post<{ parent_id: string }>('/tasks/group', payload),
 }
+
+// Issue #9：自定义分类管理（轻量方案，分类为任务上的自由文本）。
+export const categoriesApi = {
+  list: () => api.get<{ items: string[] }>('/categories'),
+  rename: (from: string, to: string) =>
+    api.post('/categories/rename', { from, to }),
+  delete: (name: string) => api.post('/categories/delete', { name }),
+}

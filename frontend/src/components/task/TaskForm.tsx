@@ -2,9 +2,8 @@
  * Reusable task create/edit form fields (no submit button — caller provides).
  */
 import { StarRating } from '@/components/ui/StarRating'
+import { CategorySelect } from '@/components/ui/CategorySelect'
 import type { Category } from '@/types'
-
-const CATEGORIES: Category[] = ['学习', '工作', '生活', '家庭', '其他']
 
 interface Draft {
   title: string
@@ -88,15 +87,11 @@ export function TaskForm({ draft, onChange, autoFocusTitle }: Props) {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
         <Field label="分类">
-          <select
+          <CategorySelect
             value={draft.category}
-            onChange={(e) => set('category', e.target.value as Category)}
-            style={{ ...inputStyle, cursor: 'pointer' }}
-            onFocus={onFocus as any}
-            onBlur={onBlur as any}
-          >
-            {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
+            onChange={(v) => set('category', v as Category)}
+            style={inputStyle}
+          />
         </Field>
         <Field label="重要性">
           <div style={{ paddingTop: '4px' }}>
