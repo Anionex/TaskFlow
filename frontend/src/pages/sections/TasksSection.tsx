@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   ChevronDown, ChevronRight, Plus, Trash2, CheckSquare, Square,
-  Edit2, Sparkles, X
+  Edit2, Sparkles, X, Check
 } from 'lucide-react'
 import { StarRating } from '@/components/ui/StarRating'
 import { Spinner } from '@/components/ui/Spinner'
 import { SkeletonRows, LoadingSwap } from '@/components/ui/Skeleton'
 import { Modal, ModalFooter } from '@/components/ui/Modal'
+import { CategorySelect } from '@/components/ui/CategorySelect'
 import { confirm } from '@/components/ui/ConfirmDialog'
 import { PageContainer } from '@/components/layout/PageContainer'
 import { TaskForm, emptyDraft } from '@/components/task/TaskForm'
@@ -50,6 +51,17 @@ function flipCompleted(list: Task[], id: string): Task[] {
   })
 }
 
+// 按 id 就地合并字段：命中顶层任务直接改；命中子任务则在其父的 subtasks 内改。
+function mapTaskById(list: Task[], id: string, changes: Partial<Task>): Task[] {
+  return list.map((t) => {
+    if (t.id === id) return { ...t, ...changes }
+    if (t.subtasks?.some((s) => s.id === id)) {
+      return { ...t, subtasks: t.subtasks.map((s) => (s.id === id ? { ...s, ...changes } : s)) }
+    }
+    return t
+  })
+}
+
 function CategoryPill({ cat }: { cat: Category }) {
   return (
     <span style={{
@@ -79,7 +91,7 @@ function ProgressMeter({ done, total }: { done: number; total: number }) {
 }
 
 export function TasksSection() {
-  const { addToast } = useAppStore()
+  const { addToast, refreshCategories } = useAppStore()
   // 窄屏：任务行改为「标题独占一行 + 分类/星级/截止另起一行」，避免固定列挤没标题。
   const isMobile = useIsMobile()
   const [tab, setTab] = useState<StatusTab>('pending')
@@ -124,6 +136,12 @@ export function TasksSection() {
 
   const [editTask, setEditTask] = useState<Task | null>(null)
   const [editDraft, setEditDraft] = useState(emptyDraft())
+  const [editSaving, setEditSaving] = useState(false)
+  const [editSaved, setEditSaved] = useState(false)
+  // #9 手动子任务：编辑顶层任务时可增删子任务；本地列表即时反馈，主列表静默刷新。
+  const [editSubtasks, setEditSubtasks] = useState<Task[]>([])
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState('')
+  const [addingSubtask, setAddingSubtask] = useState(false)
 
   // 改写建议：现由编辑卡内触发，作用于 editTask，结果内联显示在编辑卡中
   const [rewriteLoading, setRewriteLoading] = useState(false)
@@ -163,6 +181,7 @@ export function TasksSection() {
   }, [])
 
   useEffect(() => { loadTasks() }, [loadTasks])
+  useEffect(() => { refreshCategories() }, [refreshCategories])
 
   // Search on enter / debounce
   function handleSearchKey(e: React.KeyboardEvent) {
@@ -419,6 +438,9 @@ export function TasksSection() {
   function openEdit(task: Task) {
     setEditTask(task)
     setRewriteResult(null)
+    setEditSaved(false)
+    setEditSubtasks(task.subtasks ?? [])
+    setNewSubtaskTitle('')
     setEditDraft({
       title: task.title,
       description: task.description,
@@ -432,36 +454,22 @@ export function TasksSection() {
     })
   }
 
+  // Issue #11：保存后弹窗保持打开（不再立即消失），以便用户继续用 AI 拆解/分析已保存的新备注。
+  // 同步更新 editTask 让后续拆解读到最新已保存内容。支持顶层任务与子任务两级。
   async function handleEdit() {
     if (!editTask || !editDraft.title.trim()) return
     const id = editTask.id
-    // 乐观改本地字段并立即关闭弹窗；失败时只对这一行做逆向 map 还原改动的字段
-    //（函数式更新，不覆写整表），成功后按显示的列表校正派生字段
-    //（日期归一化、过期态等）。loadTasks 只刷新 tasks，语义模式需重跑检索。
-    const prevFields = {
-      title: editTask.title,
-      description: editTask.description,
-      category: editTask.category,
-      star_rating: editTask.star_rating,
-      start_date: editTask.start_date,
-      deadline: editTask.deadline,
+    const changes: Partial<Task> = {
+      title: editDraft.title,
+      description: editDraft.description,
+      category: editDraft.category,
+      star_rating: editDraft.star_rating,
+      start_date: editDraft.start_date || null,
+      deadline: editDraft.deadline || null,
     }
-    patchLists((l) =>
-      l.map((t) =>
-        t.id === id
-          ? {
-              ...t,
-              title: editDraft.title,
-              description: editDraft.description,
-              category: editDraft.category,
-              star_rating: editDraft.star_rating,
-              start_date: editDraft.start_date || null,
-              deadline: editDraft.deadline || null,
-            }
-          : t
-      )
-    )
-    setEditTask(null)
+    setEditSaving(true)
+    // 乐观改本地（顶层或子任务），但保持弹窗打开。
+    patchLists((l) => mapTaskById(l, id, changes))
     const res = await tasksApi.update(id, {
       title: editDraft.title,
       description: editDraft.description,
@@ -470,13 +478,62 @@ export function TasksSection() {
       start_date: editDraft.start_date || undefined,
       deadline: editDraft.deadline || undefined,
     })
+    setEditSaving(false)
     if (res.success) {
-      addToast({ type: 'success', message: '已更新' })
+      addToast({ type: 'success', message: '已保存' })
+      // 让 editTask 反映已保存内容，后续「AI 拆解」据此使用新备注。
+      setEditTask((t) => (t ? { ...t, ...changes } : t))
+      setEditSaved(true)
       if (semanticActive && committedQuery.trim()) runSemanticSearch(committedQuery)
       else loadTasks({ silent: true })
     } else {
       addToast({ type: 'error', message: res.message })
-      patchLists((l) => l.map((t) => (t.id === id ? { ...t, ...prevFields } : t)))
+      // 失败时从服务端拉回真实状态（比逐字段回滚更稳）。
+      if (semanticActive && committedQuery.trim()) runSemanticSearch(committedQuery)
+      else loadTasks({ silent: true })
+    }
+  }
+
+  // #9 手动添加子任务：在编辑「顶层任务」时创建其子任务（parent_id=editTask.id）。
+  async function handleAddSubtask() {
+    const title = newSubtaskTitle.trim()
+    if (!editTask || editTask.parent_id || !title || addingSubtask) return
+    setAddingSubtask(true)
+    try {
+      const res = await tasksApi.create({
+        title,
+        parent_id: editTask.id,
+        category: editTask.category,
+        sort_order: (editSubtasks[editSubtasks.length - 1]?.sort_order ?? 0) + 1,
+      })
+      if (res.success && res.data) {
+        setEditSubtasks((s) => [...s, res.data as Task])
+        setNewSubtaskTitle('')
+        loadTasks({ silent: true })
+      } else {
+        addToast({ type: 'error', message: res.message || '添加失败' })
+      }
+    } finally {
+      setAddingSubtask(false)
+    }
+  }
+
+  // #9 删除子任务（软删除，可回收站恢复）。
+  async function handleRemoveSubtask(subId: string) {
+    setEditSubtasks((s) => s.filter((t) => t.id !== subId))
+    const res = await tasksApi.delete(subId)
+    if (res.success) loadTasks({ silent: true })
+    else addToast({ type: 'error', message: '删除失败' })
+  }
+
+  // #9 在编辑弹窗内切换子任务完成态（本地即时反馈 + 主列表静默刷新）。
+  async function handleToggleSubtask(subId: string) {
+    setEditSubtasks((s) => s.map((t) => (t.id === subId ? { ...t, completed: !t.completed } : t)))
+    const res = await tasksApi.toggle(subId)
+    if (res.success) loadTasks({ silent: true })
+    else {
+      setEditSubtasks((s) => s.map((t) => (t.id === subId ? { ...t, completed: !t.completed } : t)))
+      addToast({ type: 'error', message: '操作失败' })
     }
   }
 
@@ -520,6 +577,8 @@ export function TasksSection() {
 
   async function confirmDecompose() {
     if (!decomposeResult || !decomposeTask) return
+    // Issue #12.1：结果为空时绝不创建任务组（防御性兜底，UI 也已隐藏该按钮）。
+    if (decomposeResult.subtasks.length === 0) return
     setDecomposeConfirming(true)
     try {
       const res = await tasksApi.createGroup({
@@ -677,6 +736,8 @@ export function TasksSection() {
         {isGroup && !isCollapsed && task.subtasks && task.subtasks.map((sub) => (
           <div
             key={sub.id}
+            // Issue #11：点击子任务行进入编辑（多选模式下切换选中，与顶层一致）。
+            onClick={() => (selectMode ? toggleSelect(sub.id) : openEdit(sub))}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -685,10 +746,13 @@ export function TasksSection() {
               borderBottom: '1px solid var(--border)',
               borderLeft: '2px solid var(--border)',
               marginLeft: isMobile ? '12px' : '24px',
+              cursor: 'pointer',
+              background: selected.has(sub.id) ? 'var(--accent-soft)' : 'transparent',
+              transition: 'background var(--dur-fast)',
             }}
           >
             <button
-              onClick={() => toggleTask(sub.id)}
+              onClick={(e) => { e.stopPropagation(); toggleTask(sub.id) }}
               aria-label={sub.completed ? '标记未完成' : '标记完成'}
               style={{ background: 'none', border: 'none', cursor: 'pointer', color: sub.completed ? 'var(--success)' : 'var(--border-strong)', display: 'flex', flexShrink: 0 }}
             >
@@ -708,6 +772,14 @@ export function TasksSection() {
             }}>
               {sub.title}
             </span>
+            {/* 子任务编辑入口图标（与顶层行的操作列呼应，提示可编辑） */}
+            <button
+              onClick={(e) => { e.stopPropagation(); openEdit(sub) }}
+              aria-label="编辑子任务"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', flexShrink: 0, padding: '3px' }}
+            >
+              <Edit2 size={12} />
+            </button>
             {/* Star slot aligned with parent rows */}
             <div style={{ width: STAR_COL, flexShrink: 0, display: 'flex', justifyContent: 'flex-start' }}>
               <StarRating value={sub.star_rating} readonly size="sm" />
@@ -824,19 +896,13 @@ export function TasksSection() {
             </button>
           ))}
         </div>
-        {/* 分类/排序在两种模式都可用；语义模式下分类作为检索上下文限定范围 */}
-        <select
+        {/* 分类/排序在两种模式都可用；语义模式下分类作为检索上下文限定范围。含自定义分类（#9）。 */}
+        <CategorySelect
           value={category}
-          onChange={(e) => { setCategory(e.target.value as any); setPage(1) }}
-          style={{ ...inputStyle, cursor: 'pointer' }}
-          onFocus={(e) => { e.target.style.borderColor = 'var(--accent)' }}
-          onBlur={(e) => { e.target.style.borderColor = 'var(--border-strong)' }}
-        >
-          <option value="">全部分类</option>
-          {['学习', '工作', '生活', '家庭', '其他'].map((c) => (
-            <option key={c} value={c}>{c}</option>
-          ))}
-        </select>
+          onChange={(v) => { setCategory(v as any); setPage(1) }}
+          includeAll
+          style={inputStyle}
+        />
         <select
           value={sortBy}
           onChange={(e) => { setSortBy(e.target.value as SortBy); setPage(1) }}
@@ -1018,11 +1084,12 @@ export function TasksSection() {
       </Modal>
 
       {/* Edit modal */}
-      <Modal open={!!editTask} onClose={() => setEditTask(null)} title="编辑任务">
+      <Modal open={!!editTask} onClose={() => setEditTask(null)} title={editTask?.parent_id ? '编辑子任务' : '编辑任务'}>
         {editTask && (
           <>
             <TaskForm draft={editDraft} onChange={setEditDraft} />
-            {/* AI 能力内嵌编辑卡：改写建议 + 拆解为子任务，均作用于当前编辑的任务 */}
+            {/* AI 能力内嵌编辑卡：改写建议 + 拆解为子任务，均作用于当前编辑的任务。
+                Issue #11：AI 依据「已保存」的内容分析，改动备注后需先保存。子任务不提供再拆解（仅一级）。 */}
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px', marginBottom: '4px' }}>
               <button
                 onClick={handleRewrite}
@@ -1039,19 +1106,86 @@ export function TasksSection() {
                 {rewriteLoading ? <Spinner size={12} /> : <Sparkles size={12} aria-hidden />}
                 {rewriteLoading ? '正在改写…' : '改写建议'}
               </button>
-              <button
-                onClick={() => { setDecomposeTask(editTask); setEditTask(null); setDecomposeResult(null) }}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '5px',
-                  background: 'none', border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius-pill)', padding: '5px 13px',
-                  fontSize: 'var(--text-sm)', color: 'var(--accent)',
-                  cursor: 'pointer', fontFamily: 'var(--font-sans)',
-                }}
-              >
-                <Sparkles size={12} aria-hidden /> AI 拆解为子任务
-              </button>
+              {!editTask.parent_id && (
+                <button
+                  onClick={() => { setDecomposeTask(editTask); setEditTask(null); setDecomposeResult(null) }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '5px',
+                    background: 'none', border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-pill)', padding: '5px 13px',
+                    fontSize: 'var(--text-sm)', color: 'var(--accent)',
+                    cursor: 'pointer', fontFamily: 'var(--font-sans)',
+                  }}
+                >
+                  <Sparkles size={12} aria-hidden /> AI 拆解为子任务
+                </button>
+              )}
             </div>
+            {/* 提示：AI 拆解/改写依据的是已保存的内容 */}
+            <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-xs)', color: 'var(--text-muted)', marginTop: '2px', marginBottom: '8px', lineHeight: 'var(--lh-snug)' }}>
+              修改备注后请先「保存」，AI 拆解 / 分析才会用到新的内容。
+            </p>
+
+            {/* #9 手动子任务：仅顶层任务可增删子任务 */}
+            {!editTask.parent_id && (
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: '12px', marginTop: '8px', marginBottom: '4px' }}>
+                <div style={{ fontSize: 'var(--text-xs)', fontWeight: 'var(--fw-medium)', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                  子任务{editSubtasks.length > 0 ? ` · ${editSubtasks.filter((s) => s.completed).length}/${editSubtasks.length}` : ''}
+                </div>
+                {editSubtasks.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '8px' }}>
+                    {editSubtasks.map((sub) => (
+                      <div key={sub.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          onClick={() => handleToggleSubtask(sub.id)}
+                          aria-label={sub.completed ? '标记未完成' : '标记完成'}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: sub.completed ? 'var(--success)' : 'var(--border-strong)', display: 'flex', flexShrink: 0 }}
+                        >
+                          {sub.completed ? <CheckSquare size={14} /> : <Square size={14} />}
+                        </button>
+                        <span style={{
+                          flex: 1, minWidth: 0, fontSize: 'var(--text-sm)',
+                          color: sub.completed ? 'var(--text-muted)' : 'var(--text-primary)',
+                          textDecoration: sub.completed ? 'line-through' : 'none',
+                          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                        }}>
+                          {sub.title}
+                        </span>
+                        <button onClick={() => handleRemoveSubtask(sub.id)} aria-label="删除子任务" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', flexShrink: 0, padding: '2px' }}>
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <input
+                    type="text"
+                    value={newSubtaskTitle}
+                    onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddSubtask() } }}
+                    placeholder="添加子任务…"
+                    style={{ ...inputStyle, flex: 1, background: 'var(--surface-0)' }}
+                    onFocus={(e) => { e.target.style.borderColor = 'var(--accent)'; e.target.style.boxShadow = '0 0 0 3px var(--ring)' }}
+                    onBlur={(e) => { e.target.style.borderColor = 'var(--border-strong)'; e.target.style.boxShadow = 'none' }}
+                  />
+                  <button
+                    onClick={handleAddSubtask}
+                    disabled={addingSubtask || !newSubtaskTitle.trim()}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '4px',
+                      background: 'none', border: '1px solid var(--border-strong)',
+                      borderRadius: 'var(--radius-sm)', padding: '6px 12px',
+                      fontSize: 'var(--text-sm)', color: 'var(--text-secondary)',
+                      cursor: addingSubtask || !newSubtaskTitle.trim() ? 'not-allowed' : 'pointer',
+                      opacity: addingSubtask || !newSubtaskTitle.trim() ? 0.6 : 1, fontFamily: 'var(--font-sans)',
+                    }}
+                  >
+                    {addingSubtask ? <Spinner size={12} /> : <Plus size={13} aria-hidden />} 添加
+                  </button>
+                </div>
+              </div>
+            )}
             {/* 改写建议结果卡：采纳后写回标题草稿，用户确认再保存 */}
             {rewriteResult && (
               <div style={{ paddingLeft: '12px', borderLeft: '2px solid var(--accent)', marginTop: '10px', marginBottom: '4px' }}>
@@ -1078,9 +1212,15 @@ export function TasksSection() {
               </div>
             )}
             <ModalFooter>
-              <button onClick={() => setEditTask(null)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-pill)', padding: '6px 14px', fontSize: 'var(--text-sm)', color: 'var(--text-muted)', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>取消</button>
-              <button onClick={handleEdit} disabled={!editDraft.title.trim()} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 'var(--radius-pill)', padding: '6px 16px', fontSize: 'var(--text-sm)', color: 'var(--on-accent)', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>
-                保存
+              {/* Issue #11：保存后弹窗保持打开，用「已保存」提示 + 「完成」关闭。 */}
+              {editSaved && (
+                <span style={{ marginRight: 'auto', fontSize: 'var(--text-xs)', color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <Check size={13} aria-hidden /> 已保存
+                </span>
+              )}
+              <button onClick={() => setEditTask(null)} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-pill)', padding: '6px 14px', fontSize: 'var(--text-sm)', color: 'var(--text-muted)', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>完成</button>
+              <button onClick={handleEdit} disabled={editSaving || !editDraft.title.trim()} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 'var(--radius-pill)', padding: '6px 16px', fontSize: 'var(--text-sm)', color: 'var(--on-accent)', cursor: editSaving ? 'not-allowed' : 'pointer', opacity: editSaving ? 0.7 : 1, fontFamily: 'var(--font-sans)' }}>
+                {editSaving && <Spinner size={12} />} 保存
               </button>
             </ModalFooter>
           </>
@@ -1112,7 +1252,7 @@ export function TasksSection() {
                 {decomposeLoading ? '正在拆解…' : '开始拆解'}
               </button>
             )}
-            {decomposeResult && (
+            {decomposeResult && decomposeResult.subtasks.length > 0 && (
               <div style={{ paddingLeft: '12px', borderLeft: '2px solid var(--accent)', marginBottom: '16px' }}>
                 <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: '12px' }}>
                   已拆解为 {decomposeResult.subtasks.length} 个子任务：
@@ -1128,9 +1268,31 @@ export function TasksSection() {
                 </div>
               </div>
             )}
+            {/* Issue #12.1：拆解结果为 0 时不允许创建空任务组，改为提示 + 重试。 */}
+            {decomposeResult && decomposeResult.subtasks.length === 0 && (
+              <div style={{ paddingLeft: '12px', borderLeft: '2px solid var(--border-strong)', marginBottom: '16px' }}>
+                <p style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-sm)', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                  未识别到可拆分的子步骤，这个目标可能已经足够具体。
+                </p>
+                <button
+                  onClick={handleDecompose}
+                  disabled={decomposeLoading}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '5px',
+                    background: 'none', border: '1px solid var(--border-strong)',
+                    borderRadius: 'var(--radius-pill)', padding: '5px 13px',
+                    fontSize: 'var(--text-sm)', color: 'var(--text-secondary)',
+                    cursor: decomposeLoading ? 'not-allowed' : 'pointer', fontFamily: 'var(--font-sans)',
+                  }}
+                >
+                  {decomposeLoading ? <Spinner size={12} /> : <Sparkles size={12} aria-hidden />}
+                  重新拆解
+                </button>
+              </div>
+            )}
             <ModalFooter>
               <button onClick={() => { setDecomposeTask(null); setDecomposeResult(null) }} style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-pill)', padding: '6px 14px', fontSize: 'var(--text-sm)', color: 'var(--text-muted)', cursor: 'pointer', fontFamily: 'var(--font-sans)' }}>取消</button>
-              {decomposeResult && (
+              {decomposeResult && decomposeResult.subtasks.length > 0 && (
                 <button onClick={confirmDecompose} disabled={decomposeConfirming} style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 'var(--radius-pill)', padding: '6px 16px', fontSize: 'var(--text-sm)', color: 'var(--on-accent)', cursor: decomposeConfirming ? 'not-allowed' : 'pointer', opacity: decomposeConfirming ? 0.7 : 1, fontFamily: 'var(--font-sans)' }}>
                   {decomposeConfirming && <Spinner size={12} />} 创建任务组
                 </button>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Sun, Moon, Flame, CheckCircle2, Plus } from 'lucide-react'
+import { Sun, Moon, Flame, CheckCircle2, Plus, Repeat, X } from 'lucide-react'
 import { SmartInput } from '@/components/ai/SmartInput'
 import { AiDraftCard } from '@/components/ai/AiDraftCard'
 import { Spinner } from '@/components/ui/Spinner'
@@ -51,12 +51,14 @@ function HeatmapSkeleton() {
 }
 
 export function TodaySection() {
-  const { addToast } = useAppStore()
+  const { addToast, navigateTo, setHabitPrefill, refreshCategories } = useAppStore()
   const [parseLoading, setParseLoading] = useState(false)
   // Each draft carries a stable client-side key so React keeps each
   // AiDraftCard's internal edit-state bound to the correct draft even
   // as items above it are confirmed/discarded.
   const [drafts, setDrafts] = useState<DraftItem[]>([])
+  // Issue #12.4：AI 识别出的习惯类表达单独列出，引导去「习惯」创建，不静默丢弃。
+  const [habits, setHabits] = useState<DraftItem[]>([])
 
   const [morningLoading, setMorningLoading] = useState(false)
   const [morningData, setMorningData] = useState<MorningResult | null>(null)
@@ -78,7 +80,8 @@ export function TodaySection() {
   useEffect(() => {
     loadStats()
     loadCheckin()
-  }, [])
+    refreshCategories()
+  }, [refreshCategories])
 
   async function loadStats() {
     try {
@@ -97,10 +100,14 @@ export function TodaySection() {
   async function handleParse(text: string) {
     setParseLoading(true)
     setDrafts([])
+    setHabits([])
     try {
       const res = await aiApi.parse(text)
       if (res.success && res.data && res.data.items.length > 0) {
-        setDrafts(res.data.items.map((item) => ({ ...item, _key: nextDraftKey() })))
+        // Issue #12.4：把习惯类条目从一次性任务里分出来，分别展示。
+        const items = res.data.items.map((item) => ({ ...item, _key: nextDraftKey() }))
+        setDrafts(items.filter((i) => !i.is_habit))
+        setHabits(items.filter((i) => i.is_habit))
       } else if (res.success) {
         addToast({ type: 'error', message: '没解析出任务，请手动填写' })
         setShowCreate(true)
@@ -114,6 +121,18 @@ export function TodaySection() {
     } finally {
       setParseLoading(false)
     }
+  }
+
+  // Issue #12.4：一键把识别出的习惯带去「习惯」页预填创建。
+  function createHabit(h: DraftItem) {
+    setHabitPrefill({
+      title: h.title,
+      description: h.description,
+      category: h.category,
+      star_rating: h.star_rating,
+    })
+    setHabits((arr) => arr.filter((item) => item._key !== h._key))
+    navigateTo('templates')
   }
 
   async function confirmDraft(draft: DraftItem) {
@@ -271,6 +290,52 @@ export function TodaySection() {
           loading={parseLoading}
           loadingLabel="正在整理…"
         />
+
+        {/* Issue #12.4：习惯类条目 — 不静默丢弃，显式提示并引导去「习惯」创建 */}
+        {habits.length > 0 && (
+          <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {habits.map((h) => (
+              <div
+                key={h._key}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '10px',
+                  padding: '12px 14px',
+                  background: 'var(--surface-1)', border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius-md)',
+                }}
+              >
+                <Repeat size={15} style={{ color: 'var(--accent)', flexShrink: 0 }} aria-hidden />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {h.title}
+                  </div>
+                  <div style={{ fontFamily: 'var(--font-voice)', fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+                    这条判断为习惯，未创建为一次性任务
+                  </div>
+                </div>
+                <button
+                  onClick={() => createHabit(h)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '5px', flexShrink: 0,
+                    background: 'var(--accent)', border: '1px solid var(--accent)',
+                    borderRadius: 'var(--radius-pill)', padding: '5px 13px',
+                    fontSize: 'var(--text-sm)', color: 'var(--on-accent)',
+                    cursor: 'pointer', fontFamily: 'var(--font-sans)',
+                  }}
+                >
+                  去创建习惯
+                </button>
+                <button
+                  onClick={() => setHabits((arr) => arr.filter((item) => item._key !== h._key))}
+                  aria-label="忽略"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', flexShrink: 0 }}
+                >
+                  <X size={14} aria-hidden />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Drafts — 1 or N, the model decides */}
         {drafts.length > 0 && (

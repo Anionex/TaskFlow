@@ -72,8 +72,10 @@ interface SkeletonRowsProps {
 }
 
 /**
- * Placeholder for a list of rows that share the "title + meta pills + trailing
- * controls" shape (tasks / habits / recycle bin). Rows rise in with a stagger.
+ * Placeholder for a list of task-like rows. Single-line layout that mirrors the
+ * real row (checkbox · title · category · stars · date · actions) so its height
+ * matches the loaded row and there's no reflow/jump on swap (Issue #10).
+ * Rows rise in with a stagger.
  */
 export function SkeletonRows({ count = 5, leading = false, padding = '12px 4px' }: SkeletonRowsProps) {
   return (
@@ -85,22 +87,22 @@ export function SkeletonRows({ count = 5, leading = false, padding = '12px 4px' 
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: leading ? '10px' : '12px',
+            gap: '10px',
             padding,
             borderBottom: '1px solid var(--border)',
-            animationDelay: `${i * 60}ms`,
+            animationDelay: `${i * 55}ms`,
           }}
         >
           {leading && <Skeleton width={16} height={16} radius="var(--radius-sm)" />}
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <Skeleton width={`${44 + (i % 3) * 13}%`} height={13} />
-            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-              <Skeleton width={52} height={14} radius="var(--radius-pill)" />
-              <Skeleton width={96} height={11} />
-            </div>
+          {/* title takes remaining width, like the real row's flex title column */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <Skeleton width={`${42 + (i % 3) * 14}%`} height={13} />
           </div>
-          <Skeleton width={64} height={26} radius="var(--radius-pill)" />
-          <Skeleton width={26} height={26} radius="var(--radius-pill)" />
+          {/* trailing fixed slots echo CAT / STAR / DATE / ACTIONS columns */}
+          <Skeleton width={48} height={14} radius="var(--radius-pill)" />
+          <Skeleton width={60} height={12} />
+          <Skeleton width={40} height={12} />
+          <Skeleton width={30} height={14} />
         </div>
       ))}
     </div>

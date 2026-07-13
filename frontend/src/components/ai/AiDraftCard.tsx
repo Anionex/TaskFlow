@@ -5,10 +5,9 @@
 import { useState } from 'react'
 import { Check, X, Sparkles } from 'lucide-react'
 import { StarRating } from '@/components/ui/StarRating'
+import { CategorySelect } from '@/components/ui/CategorySelect'
 import { Spinner } from '@/components/ui/Spinner'
 import type { ParsedTask, Category } from '@/types'
-
-const CATEGORIES: Category[] = ['学习', '工作', '生活', '家庭', '其他']
 
 interface Props {
   draft: ParsedTask
@@ -85,25 +84,31 @@ export function AiDraftCard({ draft: initial, onConfirm, onDiscard }: Props) {
           onFocus={(e) => { e.target.style.borderColor = 'var(--accent)'; e.target.style.boxShadow = '0 0 0 3px var(--ring)' }}
           onBlur={(e) => { e.target.style.borderColor = 'var(--border-strong)'; e.target.style.boxShadow = 'none' }}
         />
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <select
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '8px' }}>
+          <CategorySelect
             value={draft.category}
-            onChange={(e) => set('category', e.target.value as Category)}
-            style={{ ...inputStyle, width: 'auto', cursor: 'pointer' }}
-            onFocus={(e) => { e.target.style.borderColor = 'var(--accent)'; e.target.style.boxShadow = '0 0 0 3px var(--ring)' }}
-            onBlur={(e) => { e.target.style.borderColor = 'var(--border-strong)'; e.target.style.boxShadow = 'none' }}
-          >
-            {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <StarRating value={draft.star_rating} onChange={(v) => set('star_rating', v)} />
-          <input
-            type="date"
-            value={draft.deadline ?? ''}
-            onChange={(e) => set('deadline', e.target.value || null)}
+            onChange={(v) => set('category', v as Category)}
             style={{ ...inputStyle, width: 'auto' }}
-            onFocus={(e) => { e.target.style.borderColor = 'var(--accent)'; e.target.style.boxShadow = '0 0 0 3px var(--ring)' }}
-            onBlur={(e) => { e.target.style.borderColor = 'var(--border-strong)'; e.target.style.boxShadow = 'none' }}
           />
+          <StarRating value={draft.star_rating} onChange={(v) => set('star_rating', v)} />
+        </div>
+        {/* 两个日期都显式展示带标签：AI 解析出的时间不会被藏起来（Issue #12.2）。 */}
+        <div style={{ display: 'flex', gap: '14px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {(['start_date', 'deadline'] as const).map((field) => (
+            <label key={field} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
+                {field === 'start_date' ? '开始' : '截止'}
+              </span>
+              <input
+                type="date"
+                value={(draft[field] as string | null)?.slice(0, 10) ?? ''}
+                onChange={(e) => set(field, e.target.value || null)}
+                style={{ ...inputStyle, width: 'auto' }}
+                onFocus={(e) => { e.target.style.borderColor = 'var(--accent)'; e.target.style.boxShadow = '0 0 0 3px var(--ring)' }}
+                onBlur={(e) => { e.target.style.borderColor = 'var(--border-strong)'; e.target.style.boxShadow = 'none' }}
+              />
+            </label>
+          ))}
         </div>
       </div>
 

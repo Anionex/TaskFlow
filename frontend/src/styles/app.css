@@ -121,7 +121,8 @@
 .tf-skeleton {
   position: relative;
   overflow: hidden;
-  background: var(--border-strong);
+  /* 更轻的底色（Issue #10）：用最浅的 border 而非 border-strong，减少骨架与实态的明度落差。 */
+  background: var(--border);
   border-radius: var(--radius-sm);
 }
 .tf-skeleton::after {
@@ -129,8 +130,9 @@
   position: absolute;
   inset: 0;
   transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.55) 50%, transparent 100%);
-  animation: tf-shimmer 1.5s var(--ease-in-out) infinite;
+  /* 更柔和的扫光，避免过强白光造成的“闪” */
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.28) 50%, transparent 100%);
+  animation: tf-shimmer 1.8s var(--ease-in-out) infinite;
 }
 /* rows rise in with a per-row delay set inline for a smooth stagger */
 .tf-skeleton-row {

@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { AppShell, type SectionId } from '@/components/layout/AppShell'
+import { useAppStore } from '@/store'
 import { TodaySection } from './sections/TodaySection'
 import { TasksSection } from './sections/TasksSection'
 import { AgentSection } from './sections/AgentSection'
@@ -11,6 +12,15 @@ import { ConfirmHost } from '@/components/ui/ConfirmDialog'
 
 export function AppPage() {
   const [section, setSection] = useState<SectionId>('today')
+  const { navTarget, consumeNav } = useAppStore()
+
+  // 跨页导航意图（如「今日」一键去「习惯」创建，Issue #12.4）。
+  useEffect(() => {
+    if (navTarget) {
+      setSection(navTarget as SectionId)
+      consumeNav()
+    }
+  }, [navTarget, consumeNav])
 
   function renderSection() {
     switch (section) {

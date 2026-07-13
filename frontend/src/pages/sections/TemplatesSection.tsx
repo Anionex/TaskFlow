@@ -5,12 +5,12 @@ import { Modal, ModalFooter } from '@/components/ui/Modal'
 import { StarRating } from '@/components/ui/StarRating'
 import { Spinner } from '@/components/ui/Spinner'
 import { SkeletonRows, LoadingSwap } from '@/components/ui/Skeleton'
+import { CategorySelect } from '@/components/ui/CategorySelect'
 import { PageContainer } from '@/components/layout/PageContainer'
 import { templatesApi } from '@/api/templates'
 import { useAppStore } from '@/store'
-import type { Template, Category, Frequency } from '@/types'
+import type { Template, Frequency } from '@/types'
 
-const CATEGORIES: Category[] = ['学习', '工作', '生活', '家庭', '其他']
 const FREQUENCIES: { id: Frequency; label: string }[] = [
   { id: 'daily', label: '每天' },
   { id: 'weekly', label: '每周' },
@@ -59,7 +59,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 }
 
 export function TemplatesSection() {
-  const { addToast } = useAppStore()
+  const { addToast, habitPrefill, setHabitPrefill, refreshCategories } = useAppStore()
   const [templates, setTemplates] = useState<Template[]>([])
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
@@ -69,7 +69,22 @@ export function TemplatesSection() {
   const [draft, setDraft] = useState<Partial<Template>>(emptyTemplate())
   const [saving, setSaving] = useState(false)
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(); refreshCategories() }, [refreshCategories])
+
+  // Issue #12.4：从「今日」一键带来的习惯预填 → 打开新建弹窗并填好，随后清空以免重复触发。
+  useEffect(() => {
+    if (!habitPrefill) return
+    setEditing(null)
+    setDraft({
+      ...emptyTemplate(),
+      title: habitPrefill.title,
+      description: habitPrefill.description ?? '',
+      category: habitPrefill.category ?? '其他',
+      star_rating: habitPrefill.star_rating ?? 0,
+    })
+    setShowForm(true)
+    setHabitPrefill(null)
+  }, [habitPrefill, setHabitPrefill])
 
   async function load(opts?: { silent?: boolean }) {
     if (!opts?.silent) setLoading(true)
@@ -287,9 +302,7 @@ export function TemplatesSection() {
         </Field>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
           <Field label="分类">
-            <select value={draft.category ?? '其他'} onChange={(e) => set('category', e.target.value)} style={{ ...inputStyle, cursor: 'pointer' }} onFocus={focusIn as any} onBlur={focusOut as any}>
-              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
+            <CategorySelect value={draft.category ?? '其他'} onChange={(v) => set('category', v)} style={inputStyle} />
           </Field>
           <Field label="重复频率">
             <select value={draft.frequency ?? 'daily'} onChange={(e) => setFrequency(e.target.value as Frequency)} style={{ ...inputStyle, cursor: 'pointer' }} onFocus={focusIn as any} onBlur={focusOut as any}>
